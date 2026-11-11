@@ -1,0 +1,15 @@
+{
+  "needs_public_url": true,
+  "command": [
+    "node",
+    "server/server.mjs"
+  ],
+  "port": 8764,
+  "health_path": "/health",
+  "required_env": [],
+  "domains": [
+    "piizero.gilbertcv.com",
+    "devpost-buildhybridai-2026-31808.gilbertcv.com"
+  ],
+  "artifacts_dir": "dist-artifacts"
+}

@@ -1,0 +1,30 @@
+{
+  "project_id": 31808,
+  "slug": "devpost-buildhybridai-2026-31808",
+  "title": "PII-Zero: Zero-Trust Clinical & Legal Hybrid AI Airlock",
+  "hackathon": "#BuildHybridAI 2026",
+  "target_prize": "10000 USD Grand Prize (Web + Chrome Extension MV3 + Android Foldable)",
+  "live_urls": [
+    "https://piizero.gilbertcv.com",
+    "https://devpost-buildhybridai-2026-31808.gilbertcv.com"
+  ],
+  "repo_url": "https://github.com/gil906/devpost-buildhybridai-2026-31808",
+  "artifacts": {
+    "chrome_extension_zip": "dist-artifacts/piizero-chrome-extension.zip",
+    "android_debug_apk": "dist-artifacts/piizero-android-debug.apk"
+  },
+  "design_system": {
+    "canvas": "#111c26",
+    "panel": "#182734",
+    "border": "#263849",
+    "safe_teal": "#8dd6c7",
+    "review_amber": "#f2cb85",
+    "recipes": [
+      "unslop-original-web-baseline",
+      "unslop-audit-checklist",
+      "recipe-analytics-dashboard",
+      "github-mobile-compose-reply",
+      "recipe-flutter-adaptive-dashboard"
+    ]
+  }
+}

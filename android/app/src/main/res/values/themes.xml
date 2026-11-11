@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.PiiZero" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#111C26</item>
+        <item name="android:navigationBarColor">#111C26</item>
+        <item name="android:windowBackground">#111C26</item>
+    </style>
+</resources>

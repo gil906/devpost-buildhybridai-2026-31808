@@ -1,0 +1,19 @@
+{
+  "name": "piizero-chrome-extension",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PII-Zero: Zero-Trust Clinical & Legal Hybrid AI Airlock — Manifest V3 Chrome Side-Panel & Context-Menu Scrubber powered by Firebase AI Logic Hybrid Inference (firebase/ai)",
+  "scripts": {
+    "generate:icons": "node scripts/generate-icons.mjs",
+    "build": "node scripts/generate-icons.mjs && node scripts/build.mjs",
+    "package:zip": "node scripts/package-zip.mjs",
+    "test": "node --test tests/airlock.test.mjs"
+  },
+  "dependencies": {
+    "firebase": "^13.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

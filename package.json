@@ -1,0 +1,30 @@
+{
+  "name": "piizero-hybrid-airlock",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PII-Zero: Zero-Trust Clinical & Legal Hybrid AI Airlock built on Firebase AI Logic Hybrid Inference SDK",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "node server/server.mjs",
+    "start": "node server/server.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "firebase": "^12.4.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^26.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.7"
+  }
+}
