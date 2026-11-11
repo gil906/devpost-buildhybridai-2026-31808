@@ -808,7 +808,7 @@ export function generateStructuredClinicalLegalAnalysis(
 
   const lower = sanitizedText.toLowerCase();
 
-  if (lower.includes("patent") || lower.includes("escrow") || lower.includes("haptic")) {
+  if ((lower.includes("patent") || lower.includes("cross-license")) && !lower.includes("oncology")) {
     return {
       documentClassification: "Cross-Border IP Settlement & Escrow Term Sheet (FRE 408 Protected)",
       executiveSummary: "Zero-PII cloud legal analysis completed for principal " + nameToken + " under matter " + docketToken + ". Identified uncapped liability exposure in Section 7.4 and cross-border escrow controls on " + acctToken + " for settlement value " + settlementToken + ".",

@@ -1,22 +1,24 @@
 {
-  "name": "PII-Zero: Zero-Trust Clinical & Legal Hybrid AI Airlock",
-  "tagline": "On-device Gemini Nano 4 HIPAA/Legal PII airlock + SHA-256 gatekeeper + Cloud Gemini 2.5 Flash local re-hydration.",
+  "name": "PII-Zero — Clinical & Legal Hybrid AI Airlock",
+  "title": "PII-Zero — Clinical & Legal Hybrid AI Airlock",
+  "tagline": "Scrubs HIPAA & legal identifiers locally via Gemini Nano before sending zero-PII tokens to Cloud Gemini 2.5 Flash.",
   "built_with": [
     "firebase",
     "gemini",
-    "kotlin",
     "typescript",
     "react",
-    "chrome-extension",
-    "android",
+    "kotlin",
     "jetpack-compose",
+    "android",
+    "chrome-extension",
     "nodejs",
     "docker"
   ],
   "try_it_links": [
     "https://piizero.gilbertcv.com",
-    "https://devpost-buildhybridai-2026-31808.gilbertcv.com",
-    "https://github.com/gil906/devpost-buildhybridai-2026-31808"
+    "https://github.com/gil906/devpost-buildhybridai-2026-31808",
+    "https://piizero.gilbertcv.com/downloads/piizero-chrome-extension.zip",
+    "https://piizero.gilbertcv.com/downloads/piizero-android-debug.apk"
   ],
   "video_url": ""
 }

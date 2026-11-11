@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 const DIST_DIR = path.join(ROOT_DIR, "dist");
 const ARTIFACTS_DIR = path.join(ROOT_DIR, "dist-artifacts");
+const MEDIA_DIR = path.join(ROOT_DIR, "docs", "images");
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -18,6 +19,9 @@ const MIME_TYPES = {
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
   ".ico": "image/x-icon",
   ".zip": "application/zip",
   ".apk": "application/vnd.android.package-archive"
@@ -102,7 +106,7 @@ function buildServerSideAnalysis(sanitizedText, vaultTokens = []) {
   const acctToken = findToken("ACCOUNT_IBAN", "[PII_ACCT_01]");
 
   const lower = String(sanitizedText || "").toLowerCase();
-  if (lower.includes("patent") || lower.includes("escrow") || lower.includes("haptic")) {
+  if ((lower.includes("patent") || lower.includes("cross-license")) && !lower.includes("oncology")) {
     return {
       documentClassification: "Cross-Border IP Settlement & Escrow Term Sheet (FRE 408 Protected)",
       executiveSummary: `Zero-PII cloud legal analysis completed for principal ${nameToken} under matter ${docketToken}. Identified uncapped liability exposure in Section 7.4 and cross-border escrow controls on ${acctToken} for settlement value ${settlementToken}.`,
@@ -392,6 +396,25 @@ export function createAirlockServer() {
         "Content-Disposition": `attachment; filename="${filename}"`
       });
       if (req.method === "HEAD") { res.end(); } else { fs.createReadStream(artifactPath).pipe(res); }
+      return;
+    }
+
+    // Documentation diagrams & screenshots (/media/* -> docs/images/*)
+    if (isGetOrHead && pathname.startsWith("/media/")) {
+      const filename = path.basename(pathname);
+      const mediaPath = path.join(MEDIA_DIR, filename);
+      if (mediaPath.startsWith(MEDIA_DIR) && fs.existsSync(mediaPath) && fs.statSync(mediaPath).isFile()) {
+        const ext = path.extname(filename).toLowerCase();
+        const stat = fs.statSync(mediaPath);
+        res.writeHead(200, {
+          "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
+          "Content-Length": stat.size,
+          "Cache-Control": "public, max-age=3600"
+        });
+        if (req.method === "HEAD") { res.end(); } else { fs.createReadStream(mediaPath).pipe(res); }
+        return;
+      }
+      sendJson(res, 404, { error: "Media file not found" });
       return;
     }
 

@@ -1,15 +1,15 @@
 :root {
-  --bg-canvas: #111c26;
-  --bg-panel: #182734;
-  --bg-elevated: #1d2f3f;
-  --border-ruled: #263849;
-  --text-primary: #e6eef5;
-  --text-muted: #93a8bc;
-  --accent-safe: #8dd6c7;
-  --accent-amber: #f2cb85;
-  --accent-danger: #f07167;
+  --bg-canvas: #141415;
+  --bg-panel: #19191b;
+  --bg-elevated: #232325;
+  --border-ruled: rgba(237, 237, 237, 0.09);
+  --text-primary: #ededed;
+  --text-muted: #a1a1a6;
+  --accent-safe: #4cc38a;
+  --accent-amber: #e2a336;
+  --accent-danger: #e5484d;
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 * {

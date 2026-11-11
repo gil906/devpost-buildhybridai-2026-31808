@@ -11,26 +11,26 @@
     <div class="brand-row">
       <div class="brand-title">
         <span class="status-dot" id="nanoStatusDot"></span>
-        <h1>PII-ZERO // HYBRID AIRLOCK</h1>
+        <h1>PII-Zero · Side panel</h1>
       </div>
-      <span class="badge badge-safe" id="engineBadge">NANO-4 + FLASH</span>
+      <span class="badge badge-safe" id="engineBadge">Nano + Flash</span>
     </div>
-    <p class="subtitle">HIPAA 18-Identifier &amp; FRE 502 Work-Product Zero-Trust Side Panel</p>
+    <p class="subtitle">HIPAA 18-identifier &amp; FRE 502 client-side redaction before cloud paste</p>
 
     <div class="controls-grid">
       <label class="field-label">
-        <span>INFERENCE MODE (firebase/ai)</span>
+        <span>Inference mode (firebase/ai)</span>
         <select id="modeSelect" class="ledger-select">
-          <option value="prefer_on_device">PREFER_ON_DEVICE (Nano 4 → Cloud)</option>
-          <option value="only_on_device">ONLY_ON_DEVICE (Strict Airgap)</option>
-          <option value="only_in_cloud">ONLY_IN_CLOUD (Sanitized Cloud)</option>
+          <option value="prefer_on_device">Prefer on-device (Nano → Cloud)</option>
+          <option value="only_on_device">Only on-device (Strict airgap)</option>
+          <option value="only_in_cloud">Sanitized cloud</option>
         </select>
       </label>
       <label class="field-label">
-        <span>COMPLIANCE DOMAIN</span>
+        <span>Compliance profile</span>
         <select id="domainSelect" class="ledger-select">
-          <option value="clinical">Clinical EHR (HIPAA Safe Harbor)</option>
-          <option value="legal">Legal Contract / Matter (FRE 502)</option>
+          <option value="clinical">Clinical chart (HIPAA Safe Harbor)</option>
+          <option value="legal">Legal contract / matter (FRE 502)</option>
         </select>
       </label>
     </div>
@@ -39,10 +39,10 @@
   <main class="ledger-main">
     <section class="panel">
       <div class="panel-header">
-        <h2>01 // SOURCE RECORD CAPTURE</h2>
+        <h2>Source text capture</h2>
         <div class="preset-bar">
-          <button type="button" id="presetClinicalBtn" class="btn-secondary">Clinical Preset</button>
-          <button type="button" id="presetLegalBtn" class="btn-secondary">Legal Preset</button>
+          <button type="button" id="presetClinicalBtn" class="btn-secondary">Clinical sample</button>
+          <button type="button" id="presetLegalBtn" class="btn-secondary">Legal sample</button>
         </div>
       </div>
 
@@ -50,46 +50,46 @@
         id="rawInput"
         class="ledger-textarea"
         rows="5"
-        placeholder="Select clinical note or legal clause on the active tab, or paste sensitive text here..."
+        placeholder="Select text on the active tab or paste a note here"
       ></textarea>
 
       <div class="action-row">
-        <button type="button" id="pullSelectionBtn" class="btn-secondary">Pull Tab Selection</button>
-        <button type="button" id="runAirlockBtn" class="btn-primary">Scrub &amp; Analyze</button>
+        <button type="button" id="pullSelectionBtn" class="btn-secondary">Pull selection</button>
+        <button type="button" id="runAirlockBtn" class="btn-primary">Run airlock</button>
       </div>
     </section>
 
     <section class="kpi-strip">
       <div class="kpi-cell">
-        <span class="kpi-label">PII SPANS SCRUBBED</span>
+        <span class="kpi-label">Scrubbed</span>
         <strong class="kpi-value text-amber" id="kpiTotalRedactions">0</strong>
       </div>
       <div class="kpi-cell">
-        <span class="kpi-label">VAULT TOKENS</span>
+        <span class="kpi-label">Vault keys</span>
         <strong class="kpi-value text-safe" id="kpiUniqueTokens">0</strong>
       </div>
       <div class="kpi-cell">
-        <span class="kpi-label">RESIDUAL LEAKAGE</span>
+        <span class="kpi-label">Cloud PII</span>
         <strong class="kpi-value text-safe" id="kpiResidualCount">0</strong>
       </div>
       <div class="kpi-cell">
-        <span class="kpi-label">LATENCY</span>
+        <span class="kpi-label">Latency</span>
         <strong class="kpi-value" id="kpiLatency">—</strong>
       </div>
     </section>
 
     <section class="panel">
       <div class="panel-header">
-        <h2>02 // ON-DEVICE SANITIZED PAYLOAD</h2>
+        <h2>Sanitized wire payload</h2>
         <button type="button" id="replacePageSelectionBtn" class="btn-secondary">
-          1-Click Replace in Page
+          Replace in page
         </button>
       </div>
-      <pre id="redactedOutput" class="ledger-pre">Awaiting clinical or legal input...</pre>
+      <pre id="redactedOutput" class="ledger-pre">Waiting for source text…</pre>
 
       <div class="gatekeeper-bar" id="gatekeeperBanner">
         <div class="gatekeeper-row">
-          <span class="gatekeeper-status" id="gatekeeperStatus">GATEKEEPER: STANDBY</span>
+          <span class="gatekeeper-status" id="gatekeeperStatus">Gatekeeper standby</span>
           <span class="gatekeeper-bytes" id="gatekeeperBytes">0 B</span>
         </div>
         <div class="gatekeeper-hash" id="gatekeeperHash">SHA-256: —</div>
@@ -98,22 +98,22 @@
 
     <section class="panel">
       <div class="panel-header">
-        <h2>03 // LOCAL REVERSIBLE TOKEN VAULT</h2>
-        <span class="badge badge-amber" id="vaultPolicyBadge">CLIENT-ONLY MEMORY</span>
+        <h2>Local token vault</h2>
+        <span class="badge badge-amber" id="vaultPolicyBadge">Browser RAM only</span>
       </div>
       <div class="table-wrap">
         <table class="ledger-table">
           <thead>
             <tr>
-              <th>TOKEN</th>
-              <th>CATEGORY</th>
-              <th>MASKED RAW</th>
-              <th>RULE</th>
+              <th>Token</th>
+              <th>Category</th>
+              <th>Masked raw</th>
+              <th>Rule</th>
             </tr>
           </thead>
           <tbody id="vaultTableBody">
             <tr>
-              <td colspan="4" class="empty-cell">No tokens vaulted yet.</td>
+              <td colspan="4" class="empty-cell">No tokens vaulted yet</td>
             </tr>
           </tbody>
         </table>
@@ -122,13 +122,13 @@
 
     <section class="panel">
       <div class="panel-header">
-        <h2>04 // HYBRID SYNTHESIS &amp; RE-HYDRATION</h2>
+        <h2>Cloud synthesis &amp; local restore</h2>
         <label class="toggle-wrap">
           <input type="checkbox" id="rehydrateToggle" checked />
-          <span>Re-Hydrate Vault Tokens</span>
+          <span>Restore vault tokens</span>
         </label>
       </div>
-      <pre id="synthesisOutput" class="ledger-pre synthesis-box">Run the airlock to generate a sanitized synthesis...</pre>
+      <pre id="synthesisOutput" class="ledger-pre synthesis-box">Run the airlock to generate a sanitized synthesis…</pre>
     </section>
   </main>
 
