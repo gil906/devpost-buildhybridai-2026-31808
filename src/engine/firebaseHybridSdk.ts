@@ -252,6 +252,8 @@ export async function resetPiiZeroFirebaseInstances(): Promise<void> {
 export async function runHybridAirlockPipeline(params: {
   rawText: string;
   customTerms?: string[];
+  extraEntities?: Array<{ value: string; category: PiiCategoryId }>;
+  tokenAliases?: Record<string, string>;
   stage1Mode?: InferenceMode;
   firebaseConfig?: FirebaseWebConfig;
   cloudModelName?: string;
@@ -297,7 +299,11 @@ export async function runHybridAirlockPipeline(params: {
 
   const scrubResult = scrubTextWithAirlock(params.rawText, {
     customTerms: params.customTerms,
-    extraRecognizedEntities
+    extraRecognizedEntities: [
+      ...(params.extraEntities ?? []),
+      ...extraRecognizedEntities
+    ],
+    tokenAliases: params.tokenAliases
   });
   const t1 = performance.now();
 

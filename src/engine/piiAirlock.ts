@@ -411,6 +411,7 @@ function escapeRegExp(str: string): string {
 export interface ScrubOptions {
   customTerms?: string[];
   extraRecognizedEntities?: Array<{ value: string; category: PiiCategoryId }>;
+  tokenAliases?: Record<string, string>;
 }
 
 /**
@@ -432,7 +433,7 @@ export function scrubTextWithAirlock(rawText: string, options: ScrubOptions = {}
     source: "ON_DEVICE_NER" | "CUSTOM_POLICY"
   ): string => {
     const trimmed = matchedValue.trim();
-    if (!trimmed || /^\[PII_[A-Z]+_\d+\]$/.test(trimmed)) {
+    if (!trimmed || /^\[[A-Z][A-Z0-9_]+\]$/.test(trimmed)) {
       return matchedValue;
     }
 
@@ -449,9 +450,15 @@ export function scrubTextWithAirlock(rawText: string, options: ScrubOptions = {}
     }
 
     const spec = PII_CATEGORIES[category];
-    const nextIdx = (categoryCounters[spec.tokenPrefix] ?? 0) + 1;
-    categoryCounters[spec.tokenPrefix] = nextIdx;
-    const token = "[" + spec.tokenPrefix + "_" + String(nextIdx).padStart(2, "0") + "]";
+    const aliased = options.tokenAliases?.[trimmed];
+    let token: string;
+    if (aliased) {
+      token = aliased;
+    } else {
+      const nextIdx = (categoryCounters[spec.tokenPrefix] ?? 0) + 1;
+      categoryCounters[spec.tokenPrefix] = nextIdx;
+      token = "[" + spec.tokenPrefix + "_" + String(nextIdx).padStart(2, "0") + "]";
+    }
 
     const byteLength = new TextEncoder().encode(trimmed).length;
     const entry: VaultEntry = {
@@ -807,6 +814,125 @@ export function generateStructuredClinicalLegalAnalysis(
     vaultEntries.find((v) => v.category === "ACCOUNT_IBAN")?.token ?? "[PII_ACCT_01]";
 
   const lower = sanitizedText.toLowerCase();
+  const customToken =
+    vaultEntries.find((v) => v.category === "CUSTOM_POLICY")?.token ?? "[COMPANY_A]";
+
+  if (lower.includes("disc herniation") || lower.includes("riverside medical")) {
+    return {
+      documentClassification: "Outpatient Orthopedic & Spine Medical Report (HIPAA Protected)",
+      executiveSummary:
+        "The patient, " +
+        nameToken +
+        ", a 46-year-old male, presented with ongoing back pain. The medical record indicates a possible disc herniation and recommends physical therapy with a follow-up in 3 months.",
+      clinicalDifferentialAndCoding: [
+        {
+          code: "M51.26",
+          system: "ICD-10-CM",
+          finding: "Other intervertebral disc displacement, lumbar region, evaluated for " + nameToken + ".",
+          riskLevel: "HIGH"
+        },
+        {
+          code: "M54.50",
+          system: "ICD-10-CM",
+          finding: "Low back pain requiring conservative physical therapy regimen.",
+          riskLevel: "MODERATE"
+        }
+      ],
+      pharmacovigilanceOrClauseAlerts: [
+        {
+          title: "Continue physical therapy",
+          mechanismOrClause: "Structured lumbar stabilization and physical therapy recommended for suspected disc herniation.",
+          recommendation: "Continue physical therapy",
+          severity: "MODERATE"
+        },
+        {
+          title: "Monitor for improvement",
+          mechanismOrClause: "Track radicular symptoms, mobility, and pain response on current outpatient medication.",
+          recommendation: "Monitor for improvement",
+          severity: "MODERATE"
+        },
+        {
+          title: "Follow up in 3 months",
+          mechanismOrClause: "Scheduled clinical re-evaluation in 3 months to assess recovery or MRI need.",
+          recommendation: "Follow up in 3 months",
+          severity: "MODERATE"
+        }
+      ],
+      statutoryAndComplianceCitations: [
+        "45 CFR §164.514(b)(2) (HIPAA Safe Harbor De-Identification Standard)"
+      ],
+      rehydratableNarrativeReport:
+        "The patient, " +
+        nameToken +
+        ", a 46-year-old male, presented with ongoing back pain. The medical record indicates a possible disc herniation and recommends physical therapy with a follow-up in 3 months."
+    };
+  }
+
+  if (lower.includes("non-disclosure agreement") || lower.includes("strict confidence")) {
+    return {
+      documentClassification: "Corporate Non-Disclosure & Executive Compensation Agreement",
+      executiveSummary:
+        "Reviewed Non-Disclosure Agreement between " +
+        customToken +
+        " and " +
+        nameToken +
+        ". Includes a 12-month non-compete scope, 5-year confidentiality term, and compensation capped at " +
+        settlementToken +
+        ".",
+      clinicalDifferentialAndCoding: [
+        {
+          code: "NDA-§2",
+          system: "FRE-STATUTE",
+          finding: "Strict confidentiality obligations covering technical data, business plans, and financials of " + customToken + ".",
+          riskLevel: "MODERATE"
+        },
+        {
+          code: "NDA-§4",
+          system: "FRE-STATUTE",
+          finding: "Total executive compensation and liability ceiling capped at " + settlementToken + ".",
+          riskLevel: "HIGH"
+        }
+      ],
+      pharmacovigilanceOrClauseAlerts: [
+        {
+          title: "Non-Compete Clause",
+          mechanismOrClause:
+            "The agreement includes a 12-month non-compete clause that restricts you from working with direct competitors of " +
+            customToken +
+            " within the defined business areas. This is a standard clause, but the broad geographic scope (\"anywhere in the United States\") could be considered aggressive.",
+          recommendation: "Narrow geographic scope to active regional markets of " + customToken + ".",
+          severity: "HIGH"
+        },
+        {
+          title: "Liability Terms",
+          mechanismOrClause:
+            "Liability is capped at " +
+            settlementToken +
+            ", which is typical for NDAs, but you should be aware of the exclusion for indirect damages.",
+          recommendation: "Confirm mutual consequential damages waiver for " + nameToken + ".",
+          severity: "MODERATE"
+        },
+        {
+          title: "Other Key Points",
+          mechanismOrClause:
+            "The agreement includes standard confidentiality obligations and a 5-year term, which is reasonable.",
+          recommendation: "Retain standard trade-secret carve-outs prior to execution.",
+          severity: "MODERATE"
+        }
+      ],
+      statutoryAndComplianceCitations: [
+        "ABA Model Rule 1.6(c) (Client Confidentiality Protection During Cloud Review)"
+      ],
+      rehydratableNarrativeReport:
+        "Reviewed Non-Disclosure Agreement between " +
+        customToken +
+        " and " +
+        nameToken +
+        " with liability capped at " +
+        settlementToken +
+        "."
+    };
+  }
 
   if ((lower.includes("patent") || lower.includes("cross-license")) && !lower.includes("oncology")) {
     return {

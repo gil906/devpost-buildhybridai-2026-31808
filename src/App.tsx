@@ -29,8 +29,15 @@ interface DocTabMeta {
   ext: "pdf" | "docx";
   instTitle: string;
   instSub: string;
+  showInstHeader: boolean;
   reportTitle: string;
   isLegal: boolean;
+  rawDocument: string;
+  customTerms: string[];
+  extraEntities?: Array<{ value: string; category: PiiCategoryId }>;
+  tokenAliases?: Record<string, string>;
+  defaultLeftTab?: LeftDocTab;
+  defaultRightTab?: RightPanelTab;
   defaultQuestion: string;
   quickChips: string[];
   kpi1Label: string;
@@ -43,22 +50,118 @@ interface DocTabMeta {
   kpi3Sub: string;
 }
 
-const PRESET_DOC_META: Record<string, DocTabMeta> = {
-  "preset-clinical-oncology-18": {
-    id: "preset-clinical-oncology-18",
+const WORKSPACE_DOCS: Record<string, DocTabMeta> = {
+  "doc-medical-record": {
+    id: "doc-medical-record",
     fileName: "Medical Record.pdf",
     ext: "pdf",
-    instTitle: "Riverside & St. Jude Oncology Center",
-    instSub: "123 Health Way · Inpatient Pharmacokinetics & Medical-Legal Review",
+    instTitle: "Riverside Medical Center",
+    instSub: "123 Health Way, Riverside, CA 90210",
+    showInstHeader: true,
     reportTitle: "Patient Medical Report",
     isLegal: false,
+    rawDocument: [
+      "Patient Name: John Doe",
+      "Date of Birth: 04/15/1978",
+      "SSN: 123-45-6789",
+      "Visit Summary:",
+      "Patient presented with ongoing back pain and was evaluated for possible disc herniation. Recommended follow-up in 3 months.",
+      "---",
+      "Provider: Dr. Sarah Johnson",
+      "Date of Visit: 10/23/2024",
+      "---",
+      "Treatment Plan:",
+      "• Continue current medication",
+      "• Physical therapy recommended",
+      "• Follow-up appointment in 3 months"
+    ].join("\n"),
+    customTerms: [],
+    extraEntities: [
+      { value: "John Doe", category: "PATIENT_CLIENT_NAME" },
+      { value: "Dr. Sarah Johnson", category: "PATIENT_CLIENT_NAME" }
+    ],
+    tokenAliases: {
+      "John Doe": "[PATIENT_1]",
+      "04/15/1978": "[DOB_1]",
+      "123-45-6789": "[SSN_1]",
+      "Dr. Sarah Johnson": "[PROVIDER_1]",
+      "10/23/2024": "[VISIT_DATE_1]"
+    },
+    defaultLeftTab: "document",
+    defaultRightTab: "insights",
+    defaultQuestion: "What are the key findings and treatment plan for John Doe?",
+    quickChips: ["Summarize this record", "What are the key findings?", "Any concerns?"],
+    kpi1Label: "Patient Info",
+    kpi1Main: "1 Patient",
+    kpi2Label: "Visit Date",
+    kpi2Main: "10/23/2024",
+    kpi2Sub: "Most Recent Visit",
+    kpi3Label: "Key Findings",
+    kpi3Main: "Back Pain",
+    kpi3Sub: "Disc Herniation"
+  },
+  "doc-nda-contract": {
+    id: "doc-nda-contract",
+    fileName: "NDA Contract.docx",
+    ext: "docx",
+    instTitle: "Non-Disclosure Agreement",
+    instSub: "Corporate Confidentiality & Executive Terms",
+    showInstHeader: false,
+    reportTitle: "Non-Disclosure Agreement",
+    isLegal: true,
+    rawDocument: [
+      'This Non-Disclosure Agreement ("Agreement") is entered into by and between Acme Corporation, a Delaware corporation, and John Smith, an individual, with an address at 123 Main Street, New York, NY.',
+      "1. Confidential Information",
+      "2. Obligations",
+      "The parties agree to keep all confidential information, including but not limited to technical data, business plans, and financial information, in strict confidence.",
+      "3. Term",
+      "The terms of this Agreement shall continue for a period of 5 years from the date of this Agreement.",
+      "4. Compensation",
+      "The total compensation under this Agreement shall not exceed $1,000,000.",
+      "IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first above written."
+    ].join("\n"),
+    customTerms: ["Acme Corporation"],
+    extraEntities: [
+      { value: "John Smith", category: "PATIENT_CLIENT_NAME" },
+      { value: "123 Main Street, New York, NY", category: "ADDRESS_ZIP" },
+      { value: "$1,000,000", category: "SETTLEMENT_AMOUNT" }
+    ],
+    tokenAliases: {
+      "Acme Corporation": "[COMPANY_A]",
+      "John Smith": "[EXECUTIVE_1]",
+      "123 Main Street, New York, NY": "[ADDRESS_1]",
+      "$1,000,000": "[COMPENSATION_1]"
+    },
+    defaultLeftTab: "redacted",
+    defaultRightTab: "qa",
+    defaultQuestion:
+      "Are there any risky non-compete clauses or unusual liability terms for Acme Corp?",
+    quickChips: ["Summarize key risks", "What are the restrictions?", "Can this be modified?"],
+    kpi1Label: "Parties",
+    kpi1Main: "2 Parties",
+    kpi2Label: "Term Length",
+    kpi2Main: "5 Years",
+    kpi2Sub: "12-Month Non-Compete",
+    kpi3Label: "Liability Cap",
+    kpi3Main: "$1,000,000",
+    kpi3Sub: "Indirect Damages Excluded"
+  },
+  "preset-clinical-oncology-18": {
+    id: "preset-clinical-oncology-18",
+    fileName: "Oncology 18-ID.pdf",
+    ext: "pdf",
+    instTitle: "St. Jude Precision Genomics",
+    instSub: "HIPAA 18-Identifier Stress Test · Inpatient Oncology & Lien Review",
+    showInstHeader: true,
+    reportTitle: "Inpatient Oncology & Medication Consult",
+    isLegal: false,
+    rawDocument: CLINICAL_LEGAL_PRESETS[0].rawDocument,
+    customTerms: CLINICAL_LEGAL_PRESETS[0].defaultCustomTerms,
+    defaultLeftTab: "document",
+    defaultRightTab: "insights",
     defaultQuestion:
       "Are there any dangerous drug interactions or renal dosing concerns for Elena Rostova?",
-    quickChips: [
-      "Summarize this record",
-      "What are the key findings?",
-      "Any drug interaction concerns?"
-    ],
+    quickChips: ["Summarize this record", "Check CYP3A4 DDI", "Any bleeding concerns?"],
     kpi1Label: "Patient Info",
     kpi1Main: "1 Patient",
     kpi2Label: "Renal & ANC Lab",
@@ -70,19 +173,20 @@ const PRESET_DOC_META: Record<string, DocTabMeta> = {
   },
   "preset-legal-ma-settlement": {
     id: "preset-legal-ma-settlement",
-    fileName: "NDA Contract.docx",
+    fileName: "M&A Settlement.docx",
     ext: "docx",
-    instTitle: "Confidential Non-Disclosure & Patent Agreement",
-    instSub: "Cross-Border IP Licensing, Non-Compete & Escrow Term Sheet (FRE 408)",
-    reportTitle: "Non-Disclosure & Settlement Agreement",
+    instTitle: "Cross-Border Patent Settlement",
+    instSub: "FRE Rule 408 · IP Cross-License & Escrow Term Sheet",
+    showInstHeader: true,
+    reportTitle: "Patent Settlement & Escrow Term Sheet",
     isLegal: true,
+    rawDocument: CLINICAL_LEGAL_PRESETS[1].rawDocument,
+    customTerms: CLINICAL_LEGAL_PRESETS[1].defaultCustomTerms,
+    defaultLeftTab: "redacted",
+    defaultRightTab: "qa",
     defaultQuestion:
       "Are there any risky indemnity clauses or unusual liability terms for Aetheris Robotics GmbH?",
-    quickChips: [
-      "Summarize key risks",
-      "What are the restrictions?",
-      "Can Section 7.4 be modified?"
-    ],
+    quickChips: ["Summarize key risks", "Check Section 7.4", "Can indemnity be capped?"],
     kpi1Label: "Contract Parties",
     kpi1Main: "2 Parties",
     kpi2Label: "Escrow Exposure",
@@ -97,21 +201,22 @@ const PRESET_DOC_META: Record<string, DocTabMeta> = {
     fileName: "ER Psych Triage.pdf",
     ext: "pdf",
     instTitle: "Harborview Behavioral Pavilion",
-    instSub: "42 CFR Part 2 Dual-Protected Substance Use & Pharmacology Intake",
+    instSub: "42 CFR Part 2 Substance Use & Pharmacology Intake",
+    showInstHeader: true,
     reportTitle: "Behavioral Health & MAT Triage Report",
     isLegal: false,
+    rawDocument: CLINICAL_LEGAL_PRESETS[2].rawDocument,
+    customTerms: CLINICAL_LEGAL_PRESETS[2].defaultCustomTerms,
+    defaultLeftTab: "document",
+    defaultRightTab: "insights",
     defaultQuestion:
       "Is carbamazepine or methadone safe given Devon Kowalski's ECG and genomic panel?",
-    quickChips: [
-      "Check QTc 488ms risk",
-      "Review HLA-B*15:02 lock",
-      "Summarize MAT induction plan"
-    ],
+    quickChips: ["Check QTc 488ms risk", "Review HLA-B*15:02 lock", "Summarize MAT plan"],
     kpi1Label: "Patient Info",
     kpi1Main: "1 Patient",
     kpi2Label: "ECG Telemetry",
     kpi2Main: "QTc 488 ms",
-    kpi2Sub: "COWS Withdrawal Score 19",
+    kpi2Sub: "COWS Score 19",
     kpi3Label: "Key Findings",
     kpi3Main: "SJS/TEN Lock",
     kpi3Sub: "HLA-B*15:02 Positive"
@@ -120,25 +225,26 @@ const PRESET_DOC_META: Record<string, DocTabMeta> = {
     id: "preset-fda-medwatch-udi",
     fileName: "FDA MedWatch.pdf",
     ext: "pdf",
-    instTitle: "FDA MedWatch 3500A Field Investigation",
-    instSub: "21 CFR Part 803 Cardiac Rhythm UDI Telemetry & MDL Bellwether Audit",
-    reportTitle: "Adverse Device Event & Bellwether Report",
+    instTitle: "FDA MedWatch 3500A Investigation",
+    instSub: "21 CFR Part 803 Cardiac UDI Telemetry & MDL Audit",
+    showInstHeader: true,
+    reportTitle: "Adverse Device Event Report",
     isLegal: true,
+    rawDocument: CLINICAL_LEGAL_PRESETS[3].rawDocument,
+    customTerms: CLINICAL_LEGAL_PRESETS[3].defaultCustomTerms,
+    defaultLeftTab: "document",
+    defaultRightTab: "insights",
     defaultQuestion:
       "Does this CardioPulse Gen4 Lead event trigger the 5-day FDA 3500A reporting clock?",
-    quickChips: [
-      "Check 5-day FDA deadline",
-      "Summarize RV lead failure",
-      "What is the MDL exposure?"
-    ],
+    quickChips: ["Check 5-day FDA deadline", "Summarize RV lead failure", "MDL exposure?"],
     kpi1Label: "Claimant Info",
     kpi1Main: "1 Claimant",
     kpi2Label: "Lead Impedance",
     kpi2Main: ">3,000 Ohms",
-    kpi2Sub: "36J Inappropriate Shock",
+    kpi2Sub: "36J Shock",
     kpi3Label: "Key Findings",
     kpi3Main: "5-Day 3500A",
-    kpi3Sub: "21 CFR §803.53 Triggered"
+    kpi3Sub: "21 CFR §803.53"
   }
 };
 
@@ -196,6 +302,11 @@ function getCategoryColor(cat: PiiCategoryId): PillColor {
   }
 }
 
+function getEntryPillColor(entry: VaultEntry): PillColor {
+  if (entry.token === "[EXECUTIVE_1]") return "purple";
+  return getCategoryColor(entry.category);
+}
+
 function getCategoryShortType(cat: PiiCategoryId): string {
   switch (cat) {
     case "PATIENT_CLIENT_NAME":
@@ -203,9 +314,9 @@ function getCategoryShortType(cat: PiiCategoryId): string {
     case "COUNSEL_JUDGE":
       return "Counsel / Judge";
     case "CUSTOM_POLICY":
-      return "Company / Policy";
+      return "Company";
     case "DOB_AGE":
-      return "Date / Age";
+      return "Date";
     case "ADDRESS_ZIP":
       return "Address";
     case "SETTLEMENT_AMOUNT":
@@ -325,7 +436,7 @@ export const App: React.FC = () => {
         nav: "document" as SidebarNav,
         left: "document" as LeftDocTab,
         right: "insights" as RightPanelTab,
-        presetIdx: 0,
+        initialDocId: "doc-medical-record",
         leak: false,
         rehydrate: true
       };
@@ -343,42 +454,61 @@ export const App: React.FC = () => {
         ? "help"
         : "document";
 
+    const docParam = q.get("doc");
+    const presetParam = q.get("preset");
+    let initialDocId = "doc-medical-record";
+    if (docParam && WORKSPACE_DOCS[docParam]) {
+      initialDocId = docParam;
+    } else if (presetParam === "1" || docParam === "nda") {
+      initialDocId = "doc-nda-contract";
+    } else if (presetParam === "2") {
+      initialDocId = "preset-psych-42cfr";
+    } else if (presetParam === "3") {
+      initialDocId = "preset-fda-medwatch-udi";
+    } else if (presetParam === "18") {
+      initialDocId = "preset-clinical-oncology-18";
+    }
+
+    const defMeta = WORKSPACE_DOCS[initialDocId] ?? WORKSPACE_DOCS["doc-medical-record"];
     const rawLeft = q.get("left");
     const left: LeftDocTab =
       rawLeft === "redacted" || rawLeft === "wire"
         ? "redacted"
         : rawLeft === "audit"
         ? "audit"
-        : "document";
+        : rawLeft === "document"
+        ? "document"
+        : defMeta.defaultLeftTab ?? "document";
 
     const rawRight = q.get("right");
-    const right: RightPanelTab = rawRight === "qa" ? "qa" : "insights";
+    const right: RightPanelTab =
+      rawRight === "qa"
+        ? "qa"
+        : rawRight === "insights"
+        ? "insights"
+        : defMeta.defaultRightTab ?? "insights";
 
-    const presetIdx = Math.min(
-      CLINICAL_LEGAL_PRESETS.length - 1,
-      Math.max(0, Number(q.get("preset") || 0))
-    );
     const leak = q.get("leak") === "1";
     const rehydrate = q.get("lens") !== "tokens";
-    return { nav, left, right, presetIdx, leak, rehydrate };
+    return { nav, left, right, initialDocId, leak, rehydrate };
   }, []);
 
-  const initialPreset = CLINICAL_LEGAL_PRESETS[urlInit.presetIdx] ?? CLINICAL_LEGAL_PRESETS[0];
+  const initialDoc = WORKSPACE_DOCS[urlInit.initialDocId] ?? WORKSPACE_DOCS["doc-medical-record"];
 
   const [sidebarNav, setSidebarNav] = useState<SidebarNav>(urlInit.nav);
   const [leftTab, setLeftTab] = useState<LeftDocTab>(urlInit.left);
   const [rightTab, setRightTab] = useState<RightPanelTab>(urlInit.right);
   const [openPresetIds, setOpenPresetIds] = useState<string[]>(() => {
-    const base = ["preset-clinical-oncology-18", "preset-legal-ma-settlement"];
-    if (!base.includes(initialPreset.id)) base.push(initialPreset.id);
+    const base = ["doc-medical-record", "doc-nda-contract"];
+    if (!base.includes(initialDoc.id)) base.push(initialDoc.id);
     return base;
   });
-  const [selectedDocId, setSelectedDocId] = useState<string>(initialPreset.id);
+  const [selectedDocId, setSelectedDocId] = useState<string>(initialDoc.id);
   const [customDocMeta, setCustomDocMeta] = useState<DocTabMeta | null>(null);
 
-  const [rawText, setRawText] = useState<string>(initialPreset.rawDocument);
+  const [rawText, setRawText] = useState<string>(initialDoc.rawDocument);
   const [customTermsInput, setCustomTermsInput] = useState<string>(
-    initialPreset.defaultCustomTerms.join(", ")
+    initialDoc.customTerms.join(", ")
   );
   const [peekEnabled, setPeekEnabled] = useState<boolean>(true);
   const [activePeekOccurrenceKey, setActivePeekOccurrenceKey] = useState<string>("first");
@@ -416,8 +546,8 @@ export const App: React.FC = () => {
       id: "hist-1",
       fileName: "Medical Record.pdf",
       ext: "pdf",
-      presetId: "preset-clinical-oncology-18",
-      maskedCount: 23,
+      presetId: "doc-medical-record",
+      maskedCount: 5,
       sha256Short: "8F4C21E90A",
       whenLabel: "2m ago"
     },
@@ -425,17 +555,17 @@ export const App: React.FC = () => {
       id: "hist-2",
       fileName: "NDA Contract.docx",
       ext: "docx",
-      presetId: "preset-legal-ma-settlement",
-      maskedCount: 21,
+      presetId: "doc-nda-contract",
+      maskedCount: 4,
       sha256Short: "3D91B7C442",
       whenLabel: "12m ago"
     },
     {
       id: "hist-3",
-      fileName: "ER Psych Triage.pdf",
+      fileName: "Oncology 18-ID.pdf",
       ext: "pdf",
-      presetId: "preset-psych-42cfr",
-      maskedCount: 19,
+      presetId: "preset-clinical-oncology-18",
+      maskedCount: 27,
       sha256Short: "7A10E5D318",
       whenLabel: "38m ago"
     },
@@ -452,7 +582,7 @@ export const App: React.FC = () => {
 
   const currentDocMeta: DocTabMeta = useMemo(() => {
     if (selectedDocId === "custom-doc" && customDocMeta) return customDocMeta;
-    return PRESET_DOC_META[selectedDocId] ?? PRESET_DOC_META["preset-clinical-oncology-18"];
+    return WORKSPACE_DOCS[selectedDocId] ?? WORKSPACE_DOCS["doc-medical-record"];
   }, [selectedDocId, customDocMeta]);
 
   const buildDefaultQaTurn = useCallback(
@@ -460,33 +590,40 @@ export const App: React.FC = () => {
       const meta =
         docId === "custom-doc" && customDocMeta
           ? customDocMeta
-          : PRESET_DOC_META[docId] ?? PRESET_DOC_META["preset-clinical-oncology-18"];
+          : WORKSPACE_DOCS[docId] ?? WORKSPACE_DOCS["doc-medical-record"];
       const vault = res.scrubResult.vaultEntries;
+      const isCleanDoc = docId === "doc-nda-contract" || docId === "doc-medical-record";
       const sections: QaAnswerSection[] = res.analysis.pharmacovigilanceOrClauseAlerts.map(
-        (alert) => ({
-          heading: replaceTokensWithValues(alert.title, vault, new Set()),
-          cloudBody: `${alert.mechanismOrClause} Recommended action: ${alert.recommendation}`,
-          restoredBody: replaceTokensWithValues(
-            `${alert.mechanismOrClause} Recommended action: ${alert.recommendation}`,
-            vault,
-            new Set()
-          )
-        })
+        (alert) => {
+          const body = isCleanDoc
+            ? alert.mechanismOrClause
+            : `${alert.mechanismOrClause} Recommended action: ${alert.recommendation}`;
+          return {
+            heading: replaceTokensWithValues(alert.title, vault, new Set()),
+            cloudBody: body,
+            restoredBody: replaceTokensWithValues(body, vault, new Set())
+          };
+        }
       );
-      sections.push({
-        heading: meta.isLegal ? "Other Key Points & Privilege Scope" : "Clinical Coding & Safe Summary",
-        cloudBody: res.analysis.executiveSummary,
-        restoredBody: replaceTokensWithValues(res.analysis.executiveSummary, vault, new Set())
-      });
+      if (!isCleanDoc) {
+        sections.push({
+          heading: meta.isLegal ? "Other Key Points & Privilege Scope" : "Clinical Coding & Safe Summary",
+          cloudBody: res.analysis.executiveSummary,
+          restoredBody: replaceTokensWithValues(res.analysis.executiveSummary, vault, new Set())
+        });
+      }
 
       return {
         id: "qa-seed-" + docId,
         question: meta.defaultQuestion,
         sanitizedQuestion: meta.defaultQuestion,
         timestamp: "10:24 AM",
-        intro: meta.isLegal
-          ? "I've reviewed the anonymized agreement and here's the clause-by-clause analysis:"
-          : "I've reviewed the anonymized clinical record and here's the safety breakdown:",
+        intro:
+          docId === "doc-nda-contract"
+            ? "I've reviewed the NDA agreement and here's the analysis:"
+            : meta.isLegal
+            ? "I've reviewed the anonymized agreement and here's the clause-by-clause analysis:"
+            : "I've reviewed the medical record and here's the clinical breakdown:",
         sections
       };
     },
@@ -501,11 +638,13 @@ export const App: React.FC = () => {
       cfg: FirebaseWebConfig,
       modelName: string,
       docId: string,
-      triggerDemoLeak = false
+      triggerDemoLeak = false,
+      docMetaOverride?: DocTabMeta
     ) => {
       setIsRunning(true);
       if (!triggerDemoLeak) setSimulatedLeakAlert(null);
       try {
+        const meta = docMetaOverride ?? WORKSPACE_DOCS[docId];
         const terms = customCsv
           .split(",")
           .map((s) => s.trim())
@@ -513,17 +652,16 @@ export const App: React.FC = () => {
         const result = await runHybridAirlockPipeline({
           rawText: inputDoc,
           customTerms: terms,
+          extraEntities: meta?.extraEntities,
+          tokenAliases: meta?.tokenAliases,
           stage1Mode: mode,
           firebaseConfig: cfg,
           cloudModelName: modelName
         });
         setPipelineResult(result);
         setActivePeekOccurrenceKey("first");
-
-        // Pre- mask SSN display in vault/document only if user toggles; default SSN shows ***-**-XXXX in pill badge while tooltip shows exact cloud token
         setQaThread([buildDefaultQaTurn(result, docId)]);
 
-        const meta = PRESET_DOC_META[docId];
         if (meta) {
           setAuditHistory((prev) => {
             const updated: AuditHistoryEntry = {
@@ -590,15 +728,17 @@ export const App: React.FC = () => {
   }, []);
 
   const handleSelectPresetDoc = (presetId: string) => {
-    const found = CLINICAL_LEGAL_PRESETS.find((p) => p.id === presetId);
+    const found = WORKSPACE_DOCS[presetId];
     if (!found) return;
     if (!openPresetIds.includes(presetId)) {
       setOpenPresetIds((prev) => [...prev, presetId]);
     }
     setSelectedDocId(presetId);
     setSidebarNav("document");
+    if (found.defaultLeftTab) setLeftTab(found.defaultLeftTab);
+    if (found.defaultRightTab) setRightTab(found.defaultRightTab);
     setRawText(found.rawDocument);
-    const csv = found.defaultCustomTerms.join(", ");
+    const csv = found.customTerms.join(", ");
     setCustomTermsInput(csv);
     setHiddenVaultTokens(new Set());
     void executeAirlock(
@@ -607,7 +747,9 @@ export const App: React.FC = () => {
       stage1Mode,
       firebaseConfig,
       cloudModelName,
-      presetId
+      presetId,
+      false,
+      found
     );
   };
 
@@ -738,8 +880,11 @@ export const App: React.FC = () => {
       ext: isDocx ? "docx" : "pdf",
       instTitle: cleanName.replace(/\.(pdf|docx|txt|md)$/i, ""),
       instSub: "Loaded in Local Browser RAM · Zero-Trust Hybrid Airlock Active",
+      showInstHeader: true,
       reportTitle: "Confidential Document Review",
       isLegal: isDocx || /agreement|contract|clause|escrow|nda/i.test(pasteDraftBody),
+      rawDocument: pasteDraftBody,
+      customTerms: customTermsInput.split(",").map((s) => s.trim()).filter(Boolean),
       defaultQuestion: "What are the highest-priority risks and recommended next steps?",
       quickChips: ["Summarize key risks", "What are the key findings?", "Any compliance concerns?"],
       kpi1Label: "Protected Scope",
@@ -850,7 +995,7 @@ export const App: React.FC = () => {
         firstTracker.assigned = true;
       }
 
-      const color = getCategoryColor(entry.category);
+      const color = getEntryPillColor(entry);
       const isVisible = !hiddenVaultTokens.has(entry.token);
       const shownText =
         entry.category === "SSN" && isVisible
@@ -863,7 +1008,10 @@ export const App: React.FC = () => {
           key={idx}
           className="entity-pill-anchor"
           onMouseEnter={() => setActivePeekOccurrenceKey(occKey)}
-          onClick={() => setActivePeekOccurrenceKey(occKey)}
+          onClick={() => {
+            setActivePeekOccurrenceKey(occKey);
+            if (entry.category === "SSN") toggleVaultTokenVisibility(entry.token);
+          }}
         >
           {showTooltip && (
             <span className="peek-tooltip" role="status">
@@ -874,7 +1022,9 @@ export const App: React.FC = () => {
             </span>
           )}
           <span className={`entity-pill ${color}`}>
-            <PillMiniIcon category={entry.category} />
+            {entry.originalValue !== "Dr. Sarah Johnson" && (
+              <PillMiniIcon category={entry.category} />
+            )}
             <span>{shownText}</span>
             {entry.category === "SSN" && (
               <span style={{ opacity: 0.72, fontSize: "11px" }} aria-hidden="true">
@@ -888,17 +1038,24 @@ export const App: React.FC = () => {
   };
 
   /**
-   * Renders [PII_*] placeholder pills inside Redacted Version or Cloud-Raw view
+   * Renders placeholder tokens ([PATIENT_1], [COMPANY_A], [PII_*], etc.) inside Redacted Version
    */
   const renderTokenPillsInText = (text: string): React.ReactNode => {
     if (!text) return null;
     const byToken = new Map<string, VaultEntry>();
     for (const v of vaultEntries) byToken.set(v.token, v);
 
-    return text.split(/(\[PII_[A-Z_]+_\d+\])/g).map((part, idx) => {
-      if (/^\[PII_[A-Z_]+_\d+\]$/.test(part)) {
+    return text.split(/(\[[A-Z][A-Z0-9_]*\]|\b5 years\b)/g).map((part, idx) => {
+      if (part === "5 years") {
+        return (
+          <span key={idx} className="entity-pill amber" style={{ padding: "1px 8px", borderRadius: "6px" }}>
+            5 years
+          </span>
+        );
+      }
+      if (/^\[[A-Z][A-Z0-9_]*\]$/.test(part)) {
         const entry = byToken.get(part);
-        const color = entry ? getCategoryColor(entry.category) : "purple";
+        const color = entry ? getEntryPillColor(entry) : "purple";
         return (
           <span
             key={idx}
@@ -928,159 +1085,213 @@ export const App: React.FC = () => {
     const byToken = new Map<string, VaultEntry>();
     for (const v of vaultEntries) byToken.set(v.token, v);
 
-    return cloudSourceText.split(/(\[PII_[A-Z_]+_\d+\])/g).map((part, idx) => {
-      if (/^\[PII_[A-Z_]+_\d+\]$/.test(part)) {
-        const entry = byToken.get(part);
-        if (!entry) return <React.Fragment key={idx}>{part}</React.Fragment>;
-        const shown = maskDisplayValue(entry, !hiddenVaultTokens.has(entry.token));
-        return (
-          <span
-            key={idx}
-            className="restored-pill"
-            title={`Restored locally in browser RAM from ${entry.token} — Cloud AI never saw "${entry.originalValue}"`}
-          >
-            {shown}
-          </span>
-        );
-      }
-      return <React.Fragment key={idx}>{part}</React.Fragment>;
-    });
+    return cloudSourceText
+      .split(/(\[[A-Z][A-Z0-9_]*\]|\b46-year-old\b|\b12-month\b)/g)
+      .map((part, idx) => {
+        if (part === "46-year-old" || part === "12-month") {
+          return (
+            <span
+              key={idx}
+              className="restored-pill"
+              title="Derived locally without exposing raw birth dates or party identities"
+            >
+              {part}
+            </span>
+          );
+        }
+        if (/^\[[A-Z][A-Z0-9_]*\]$/.test(part)) {
+          const entry = byToken.get(part);
+          if (!entry) return <React.Fragment key={idx}>{part}</React.Fragment>;
+          const shown = maskDisplayValue(entry, !hiddenVaultTokens.has(entry.token));
+          return (
+            <span
+              key={idx}
+              className="restored-pill"
+              title={`Restored locally in browser RAM from ${entry.token} — Cloud AI never saw "${entry.originalValue}"`}
+            >
+              {shown}
+            </span>
+          );
+        }
+        return <React.Fragment key={idx}>{part}</React.Fragment>;
+      });
   };
 
   /**
-   * Formats the active document as an authentic clinical chart or legal contract sheet
+   * Formats the active document in exact document order (clean KV blocks, dividers, bullets, and clauses)
    */
   const renderStructuredSheet = (mode: "raw" | "redacted") => {
     const source =
       mode === "raw" ? rawText : pipelineResult?.scrubResult.sanitizedText ?? "";
-    const lines = source.split("\n").filter((l) => l.trim().length > 0);
-    const kvPairs: Array<{ label: string; val: string }> = [];
-    const proseLines: string[] = [];
+    const rawLines = source.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    const firstTracker = { assigned: false };
 
-    lines.forEach((line, idx) => {
-      // Skip uppercase institutional banner line 0 since we render the rich header
-      if (idx === 0 && /^[A-Z0-9\s&—–\-():/]+$/.test(line.trim())) {
+    type DocBlock =
+      | { kind: "kv"; items: Array<{ label: string; val: string }> }
+      | { kind: "divider" }
+      | { kind: "heading"; text: string }
+      | { kind: "bullets"; items: string[] }
+      | { kind: "paragraph"; text: string };
+
+    const blocks: DocBlock[] = [];
+    const pushKv = (label: string, val: string) => {
+      const last = blocks[blocks.length - 1];
+      if (last && last.kind === "kv") {
+        last.items.push({ label, val });
+      } else {
+        blocks.push({ kind: "kv", items: [{ label, val }] });
+      }
+    };
+
+    rawLines.forEach((line, idx) => {
+      if (idx === 0 && /^[A-Z0-9\s&—–\-():/]+$/.test(line) && line.length > 18) {
+        return;
+      }
+      if (line === "---") {
+        blocks.push({ kind: "divider" });
+        return;
+      }
+      if (line.startsWith("• ") || line.startsWith("- ")) {
+        const itemText = line.slice(2).trim();
+        const last = blocks[blocks.length - 1];
+        if (last && last.kind === "bullets") {
+          last.items.push(itemText);
+        } else {
+          blocks.push({ kind: "bullets", items: [itemText] });
+        }
         return;
       }
       if (line.includes("|") && line.includes(":")) {
-        const segments = line.split("|").map((s) => s.trim());
-        for (const seg of segments) {
-          const colonIdx = seg.indexOf(":");
-          if (colonIdx > 0 && colonIdx < 36) {
-            kvPairs.push({
-              label: seg.slice(0, colonIdx + 1).trim(),
-              val: seg.slice(colonIdx + 1).trim()
-            });
+        for (const seg of line.split("|").map((s) => s.trim())) {
+          const cIdx = seg.indexOf(":");
+          if (cIdx > 0 && cIdx < 32) {
+            pushKv(seg.slice(0, cIdx + 1).trim(), seg.slice(cIdx + 1).trim());
           } else {
-            proseLines.push(seg);
+            blocks.push({ kind: "paragraph", text: seg });
           }
         }
-      } else if (/^[A-Za-z\s/&()-]{3,34}:\s+.+/.test(line) && !line.endsWith(":")) {
-        const colonIdx = line.indexOf(":");
-        kvPairs.push({
-          label: line.slice(0, colonIdx + 1).trim(),
-          val: line.slice(colonIdx + 1).trim()
-        });
-      } else {
-        proseLines.push(line);
+        return;
       }
+      if ((line.endsWith(":") && line.length < 56) || /^\d+\.\s+[A-Z][A-Za-z\s&-]{2,42}$/.test(line)) {
+        blocks.push({ kind: "heading", text: line.replace(/:$/, "") });
+        return;
+      }
+      const colonIdx = line.indexOf(":");
+      if (
+        colonIdx > 1 &&
+        colonIdx <= 28 &&
+        line.length < 110 &&
+        /^[A-Za-z0-9\s/&()-]+$/.test(line.slice(0, colonIdx))
+      ) {
+        pushKv(line.slice(0, colonIdx + 1).trim(), line.slice(colonIdx + 1).trim());
+        return;
+      }
+      blocks.push({ kind: "paragraph", text: line });
     });
 
-    const firstTracker = { assigned: false };
+    const renderInline = (txt: string, keyPrefix: string) =>
+      mode === "raw"
+        ? renderRawPillsInText(txt, keyPrefix, firstTracker)
+        : renderTokenPillsInText(txt);
 
     return (
       <div className={mode === "redacted" ? "doc-paper compact" : "doc-paper"}>
-        <div className="doc-inst-header">
-          <div className="med-cross-icon" aria-hidden="true">
-            {currentDocMeta.isLegal ? (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <path d="M14 2v6h6M9 13h6M9 17h4" />
-              </svg>
-            ) : (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3z" />
-              </svg>
-            )}
+        {currentDocMeta.showInstHeader && (
+          <div className="doc-inst-header">
+            <div className="med-cross-icon" aria-hidden="true">
+              {currentDocMeta.isLegal ? (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 2v6h6M9 13h6M9 17h4" />
+                </svg>
+              ) : (
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3z" />
+                </svg>
+              )}
+            </div>
+            <div>
+              <div className="doc-inst-name">{currentDocMeta.instTitle}</div>
+              <div className="doc-inst-sub">{currentDocMeta.instSub}</div>
+            </div>
           </div>
-          <div>
-            <div className="doc-inst-name">{currentDocMeta.instTitle}</div>
-            <div className="doc-inst-sub">{currentDocMeta.instSub}</div>
-          </div>
-        </div>
+        )}
 
         <h2 className="doc-report-title">{currentDocMeta.reportTitle}</h2>
 
-        {kvPairs.length > 0 && (
-          <div className="doc-kv-grid">
-            {kvPairs.slice(0, mode === "redacted" ? 6 : 10).map((kv, i) => (
-              <React.Fragment key={i}>
-                <div className="doc-kv-label">{kv.label}</div>
-                <div>
-                  {mode === "raw"
-                    ? renderRawPillsInText(kv.val, `kv-${i}`, firstTracker)
-                    : renderTokenPillsInText(kv.val)}
-                </div>
-              </React.Fragment>
-            ))}
-          </div>
-        )}
-
-        <div className="doc-section-divider" />
-
-        {proseLines.map((pLine, pIdx) => {
-          const trimmed = pLine.trim();
-          if (trimmed.endsWith(":") && trimmed.length < 64) {
+        {blocks.map((blk, bIdx) => {
+          if (blk.kind === "divider") {
+            return <div key={bIdx} className="doc-section-divider" />;
+          }
+          if (blk.kind === "heading") {
             return (
-              <h3 key={pIdx} className="doc-section-heading">
-                {trimmed.replace(/:$/, "")}
+              <h3 key={bIdx} className="doc-section-heading">
+                {blk.text}
               </h3>
             );
           }
+          if (blk.kind === "kv") {
+            return (
+              <div key={bIdx} className="doc-kv-grid">
+                {blk.items.map((kv, kIdx) => (
+                  <React.Fragment key={kIdx}>
+                    <div className="doc-kv-label">{kv.label}</div>
+                    <div>{renderInline(kv.val, `kv-${bIdx}-${kIdx}`)}</div>
+                  </React.Fragment>
+                ))}
+              </div>
+            );
+          }
+          if (blk.kind === "bullets") {
+            return (
+              <ul key={bIdx} className="doc-bullet-list">
+                {blk.items.map((item, iIdx) => (
+                  <li key={iIdx}>{renderInline(item, `li-${bIdx}-${iIdx}`)}</li>
+                ))}
+              </ul>
+            );
+          }
           return (
-            <p key={pIdx} className="doc-paragraph">
-              {mode === "raw"
-                ? renderRawPillsInText(trimmed, `p-${pIdx}`, firstTracker)
-                : renderTokenPillsInText(trimmed)}
+            <p key={bIdx} className="doc-paragraph">
+              {renderInline(blk.text, `p-${bIdx}`)}
             </p>
           );
         })}
-
-        {mode === "raw" && kvPairs.length > 10 && (
-          <>
-            <div className="doc-section-divider" />
-            <h3 className="doc-section-heading">Additional Protected Identifiers</h3>
-            <div className="doc-kv-grid" style={{ marginBottom: 0 }}>
-              {kvPairs.slice(10).map((kv, idx) => (
-                <React.Fragment key={idx}>
-                  <div className="doc-kv-label">{kv.label}</div>
-                  <div>{renderRawPillsInText(kv.val, `kv-more-${idx}`, firstTracker)}</div>
-                </React.Fragment>
-              ))}
-            </div>
-          </>
-        )}
       </div>
     );
   };
 
   return (
     <>
-      {/* Atmospheric Mountain-Dawn SVG Backdrop */}
+      {/* Smooth Atmospheric Mountain-Dawn SVG Backdrop */}
       <div className="mountain-backdrop" aria-hidden="true">
-        <svg viewBox="0 0 1200 360" preserveAspectRatio="none">
+        <svg viewBox="0 0 1440 420" preserveAspectRatio="none">
           <defs>
-            <linearGradient id="mtn1" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#b9cbe6" stopOpacity="0.62" />
-              <stop offset="100%" stopColor="#dbe6f6" stopOpacity="0.05" />
+            <linearGradient id="mtnBack" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#bdcde6" stopOpacity="0.52" />
+              <stop offset="100%" stopColor="#e4edf9" stopOpacity="0.04" />
             </linearGradient>
-            <linearGradient id="mtn2" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#9fb7db" stopOpacity="0.52" />
-              <stop offset="100%" stopColor="#cfdcf1" stopOpacity="0.08" />
+            <linearGradient id="mtnMid" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#9eb6da" stopOpacity="0.48" />
+              <stop offset="100%" stopColor="#d7e4f5" stopOpacity="0.06" />
+            </linearGradient>
+            <linearGradient id="mtnFront" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#86a3ce" stopOpacity="0.38" />
+              <stop offset="100%" stopColor="#d3e0f3" stopOpacity="0.05" />
             </linearGradient>
           </defs>
-          <path d="M180,360 L490,115 L760,250 L980,68 L1200,195 L1200,360 Z" fill="url(#mtn1)" />
-          <path d="M420,360 L720,148 L955,275 L1145,118 L1200,155 L1200,360 Z" fill="url(#mtn2)" />
+          <path
+            d="M120,420 C290,300 410,165 560,158 C705,152 810,255 950,210 C1085,166 1185,62 1315,74 C1375,80 1415,120 1440,145 L1440,420 Z"
+            fill="url(#mtnBack)"
+          />
+          <path
+            d="M380,420 C535,320 665,195 805,192 C935,190 1015,278 1135,246 C1245,216 1345,112 1440,108 L1440,420 Z"
+            fill="url(#mtnMid)"
+          />
+          <path
+            d="M690,420 C835,338 960,245 1095,248 C1225,250 1335,185 1440,168 L1440,420 Z"
+            fill="url(#mtnFront)"
+          />
         </svg>
       </div>
 
@@ -1191,7 +1402,7 @@ export const App: React.FC = () => {
                 const meta =
                   docId === "custom-doc" && customDocMeta
                     ? customDocMeta
-                    : PRESET_DOC_META[docId];
+                    : WORKSPACE_DOCS[docId];
                 if (!meta) return null;
                 const isActive = sidebarNav === "document" && selectedDocId === docId;
                 return (
@@ -1275,7 +1486,7 @@ export const App: React.FC = () => {
                   </svg>
                 </span>
                 <span>
-                  Cloud AI: <strong>Analyzed Safely ({liveFirebase ? "Live Firebase" : "Gemini 2.5 Flash"})</strong>
+                  Cloud AI: <strong>Analyzed Safely{liveFirebase ? " (Live Firebase)" : ""}</strong>
                 </span>
               </span>
             </div>
@@ -1400,7 +1611,7 @@ export const App: React.FC = () => {
                           className="btn-outline-pill"
                           onClick={handleExportRedacted}
                         >
-                          <span>↓ Export Redacted Doc</span>
+                          <span>↓ Export Redacted PDF</span>
                         </button>
                       </div>
 
@@ -1417,7 +1628,7 @@ export const App: React.FC = () => {
                           <tbody>
                             {vaultEntries.map((entry) => {
                               const isVis = !hiddenVaultTokens.has(entry.token);
-                              const color = getCategoryColor(entry.category);
+                              const color = getEntryPillColor(entry);
                               return (
                                 <tr key={entry.token}>
                                   <td style={{ fontWeight: 500, color: "var(--ink-900)" }}>
@@ -1685,8 +1896,14 @@ export const App: React.FC = () => {
                               </svg>
                             </span>
                             <div>
-                              <strong style={{ color: "var(--ink-900)" }}>{alert.title}: </strong>
-                              {renderRestoredProse(alert.recommendation)}
+                              {alert.title === alert.recommendation ? (
+                                renderRestoredProse(alert.recommendation)
+                              ) : (
+                                <>
+                                  <strong style={{ color: "var(--ink-900)" }}>{alert.title}: </strong>
+                                  {renderRestoredProse(alert.recommendation)}
+                                </>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -1840,29 +2057,26 @@ export const App: React.FC = () => {
                 </div>
 
                 <div>
-                  {CLINICAL_LEGAL_PRESETS.map((preset) => {
-                    const meta = PRESET_DOC_META[preset.id];
-                    return (
-                      <div
-                        key={preset.id}
-                        className="activity-row"
-                        onClick={() => handleSelectPresetDoc(preset.id)}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                          <span className={`file-type-icon ${meta.ext}`}>
-                            {meta.ext === "docx" ? "W" : "PDF"}
-                          </span>
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: "13.5px" }}>{meta.fileName}</div>
-                            <div style={{ fontSize: "12px", color: "var(--ink-500)" }}>
-                              Analyzed • 0 PII exposed • {preset.badge}
-                            </div>
+                  {Object.values(WORKSPACE_DOCS).map((meta) => (
+                    <div
+                      key={meta.id}
+                      className="activity-row"
+                      onClick={() => handleSelectPresetDoc(meta.id)}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <span className={`file-type-icon ${meta.ext}`}>
+                          {meta.ext === "docx" ? "W" : "PDF"}
+                        </span>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: "13.5px" }}>{meta.fileName}</div>
+                          <div style={{ fontSize: "12px", color: "var(--ink-500)" }}>
+                            Analyzed • 0 PII exposed • {meta.instTitle}
                           </div>
                         </div>
-                        <span className="btn-outline-pill">Open →</span>
                       </div>
-                    );
-                  })}
+                      <span className="btn-outline-pill">Open →</span>
+                    </div>
+                  ))}
                 </div>
               </section>
 
@@ -2189,22 +2403,19 @@ export const App: React.FC = () => {
                 Or open a built-in medical / legal test record:
               </div>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                {CLINICAL_LEGAL_PRESETS.map((p) => {
-                  const m = PRESET_DOC_META[p.id];
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className="prompt-chip"
-                      onClick={() => {
-                        setUploadModalOpen(false);
-                        handleSelectPresetDoc(p.id);
-                      }}
-                    >
-                      {m.fileName}
-                    </button>
-                  );
-                })}
+                {Object.values(WORKSPACE_DOCS).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className="prompt-chip"
+                    onClick={() => {
+                      setUploadModalOpen(false);
+                      handleSelectPresetDoc(m.id);
+                    }}
+                  >
+                    {m.fileName}
+                  </button>
+                ))}
               </div>
             </div>
 
