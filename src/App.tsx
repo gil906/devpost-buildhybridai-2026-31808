@@ -1027,9 +1027,20 @@ export const App: React.FC = () => {
             )}
             <span>{shownText}</span>
             {entry.category === "SSN" && (
-              <span style={{ opacity: 0.72, fontSize: "11px" }} aria-hidden="true">
-                ⊘
-              </span>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.1"
+                style={{ opacity: 0.78, marginLeft: "2px" }}
+                aria-hidden="true"
+              >
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                <path d="M1 1l22 22" />
+              </svg>
             )}
           </span>
         </span>
@@ -1198,18 +1209,25 @@ export const App: React.FC = () => {
       <div className={mode === "redacted" ? "doc-paper compact" : "doc-paper"}>
         {currentDocMeta.showInstHeader && (
           <div className="doc-inst-header">
-            <div className="med-cross-icon" aria-hidden="true">
-              {currentDocMeta.isLegal ? (
+            {currentDocMeta.isLegal ? (
+              <div className="med-cross-icon" aria-hidden="true">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                   <path d="M14 2v6h6M9 13h6M9 17h4" />
                 </svg>
-              ) : (
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3z" />
-                </svg>
-              )}
-            </div>
+              </div>
+            ) : (
+              <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+                <defs>
+                  <linearGradient id="medCrossBlue" x1="6" y1="6" x2="34" y2="34" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#60a5fa" />
+                    <stop offset="100%" stopColor="#2563eb" />
+                  </linearGradient>
+                </defs>
+                <rect x="15" y="4" width="10" height="32" rx="3.2" fill="url(#medCrossBlue)" />
+                <rect x="4" y="15" width="32" height="10" rx="3.2" fill="url(#medCrossBlue)" />
+              </svg>
+            )}
             <div>
               <div className="doc-inst-name">{currentDocMeta.instTitle}</div>
               <div className="doc-inst-sub">{currentDocMeta.instSub}</div>
@@ -1265,32 +1283,39 @@ export const App: React.FC = () => {
     <>
       {/* Smooth Atmospheric Mountain-Dawn SVG Backdrop */}
       <div className="mountain-backdrop" aria-hidden="true">
-        <svg viewBox="0 0 1440 420" preserveAspectRatio="none">
+        <svg viewBox="0 0 1600 440" preserveAspectRatio="none">
           <defs>
-            <linearGradient id="mtnBack" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#bdcde6" stopOpacity="0.52" />
-              <stop offset="100%" stopColor="#e4edf9" stopOpacity="0.04" />
+            <linearGradient id="dawnGlow" x1="0.45" y1="0" x2="0.95" y2="0.85">
+              <stop offset="0%" stopColor="#fde6d2" stopOpacity="0.88" />
+              <stop offset="55%" stopColor="#e8e6f6" stopOpacity="0.45" />
+              <stop offset="100%" stopColor="#dce8f8" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id="mtnFar" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#8da5cc" stopOpacity="0.68" />
+              <stop offset="100%" stopColor="#dbe6f6" stopOpacity="0.1" />
             </linearGradient>
             <linearGradient id="mtnMid" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#9eb6da" stopOpacity="0.48" />
+              <stop offset="0%" stopColor="#6984b3" stopOpacity="0.72" />
+              <stop offset="65%" stopColor="#93abd2" stopOpacity="0.42" />
               <stop offset="100%" stopColor="#d7e4f5" stopOpacity="0.06" />
             </linearGradient>
-            <linearGradient id="mtnFront" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#86a3ce" stopOpacity="0.38" />
-              <stop offset="100%" stopColor="#d3e0f3" stopOpacity="0.05" />
+            <linearGradient id="mtnNear" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#5673a4" stopOpacity="0.58" />
+              <stop offset="100%" stopColor="#cad9ef" stopOpacity="0.08" />
             </linearGradient>
           </defs>
+          <ellipse cx="1160" cy="65" rx="460" ry="175" fill="url(#dawnGlow)" />
           <path
-            d="M120,420 C290,300 410,165 560,158 C705,152 810,255 950,210 C1085,166 1185,62 1315,74 C1375,80 1415,120 1440,145 L1440,420 Z"
-            fill="url(#mtnBack)"
+            d="M160,440 C340,295 510,130 675,126 C835,122 930,228 1085,172 C1225,120 1355,24 1495,38 C1550,44 1580,72 1600,92 L1600,440 Z"
+            fill="url(#mtnFar)"
           />
           <path
-            d="M380,420 C535,320 665,195 805,192 C935,190 1015,278 1135,246 C1245,216 1345,112 1440,108 L1440,420 Z"
+            d="M520,440 C695,308 855,154 1015,146 C1155,139 1245,232 1375,186 C1475,150 1545,68 1600,58 L1600,440 Z"
             fill="url(#mtnMid)"
           />
           <path
-            d="M690,420 C835,338 960,245 1095,248 C1225,250 1335,185 1440,168 L1440,420 Z"
-            fill="url(#mtnFront)"
+            d="M840,440 C995,332 1145,208 1295,204 C1420,200 1515,138 1600,114 L1600,440 Z"
+            fill="url(#mtnNear)"
           />
         </svg>
       </div>
@@ -1302,24 +1327,14 @@ export const App: React.FC = () => {
             <button
               type="button"
               className="brand-lockup"
-              onClick={() => setSidebarNav("document")}
+              title="Toggle Workspace / Overview"
+              onClick={() => setSidebarNav((prev) => (prev === "document" ? "home" : "document"))}
             >
               <ShieldSparkleLogo />
               <span className="brand-wordmark">PII-Zero</span>
             </button>
 
             <nav className="sidebar-nav">
-              <button
-                type="button"
-                className={"sidebar-link " + (sidebarNav === "home" ? "active" : "")}
-                onClick={() => setSidebarNav("home")}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5.5v-6h-5v6H4a1 1 0 0 1-1-1v-9.5z" />
-                </svg>
-                <span>Home</span>
-              </button>
-
               <button
                 type="button"
                 className={"sidebar-link " + (sidebarNav === "document" ? "active" : "")}
@@ -1351,7 +1366,7 @@ export const App: React.FC = () => {
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1z" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1-.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1z" />
                 </svg>
                 <span>Settings</span>
               </button>
@@ -1365,23 +1380,27 @@ export const App: React.FC = () => {
                   <circle cx="12" cy="12" r="9" />
                   <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.6-2.5 2-2.5 3.8M12 17h.01" />
                 </svg>
-                <span>Help &amp; Apps</span>
+                <span>Help</span>
               </button>
             </nav>
           </div>
 
-          <svg className="sidebar-pine-art" viewBox="0 0 210 220" preserveAspectRatio="none" aria-hidden="true">
-            <path d="M0,150 L68,95 L138,142 L210,104 L210,220 L0,220 Z" fill="#ceddf2" opacity="0.65" />
-            <path d="M0,175 L95,126 L175,168 L210,148 L210,220 L0,220 Z" fill="#b7cde9" opacity="0.72" />
-            <g fill="#7c9cc6" opacity="0.58">
-              <polygon points="22,118 8,148 36,148" />
-              <polygon points="22,134 5,168 39,168" />
-              <polygon points="22,152 2,190 42,190" />
-              <polygon points="50,136 39,160 61,160" />
-              <polygon points="50,150 36,180 64,180" />
-              <polygon points="75,148 66,168 84,168" />
-              <polygon points="75,160 63,186 87,186" />
+          <svg className="sidebar-pine-art" viewBox="0 0 200 250" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M0,145 C52,118 96,95 148,125 C172,138 188,126 200,118 L200,250 L0,250 Z" fill="#c7d8f0" opacity="0.72" />
+            <path d="M0,178 C64,148 122,162 200,142 L200,250 L0,250 Z" fill="#adc4e5" opacity="0.82" />
+            <g fill="#5b7fb2" opacity="0.74">
+              <polygon points="18,92 4,122 32,122" />
+              <polygon points="18,108 1,144 35,144" />
+              <polygon points="18,126 -3,168 39,168" />
+              <polygon points="18,146 -6,194 42,194" />
+              <polygon points="46,116 34,142 58,142" />
+              <polygon points="46,132 30,164 62,164" />
+              <polygon points="46,150 26,190 66,190" />
+              <polygon points="74,134 64,156 84,156" />
+              <polygon points="74,148 60,176 88,176" />
+              <polygon points="74,164 57,196 91,196" />
             </g>
+            <path d="M0,196 C55,180 125,194 200,182 L200,250 L0,250 Z" fill="#ceddf2" opacity="0.88" />
           </svg>
 
           <div className="sidebar-bottom">
@@ -1800,17 +1819,19 @@ export const App: React.FC = () => {
                     </button>
                   </div>
 
-                  <div className="tab-controls-right">
-                    <button
-                      type="button"
-                      className="btn-outline-pill"
-                      style={{ height: "28px", fontSize: "11.5px", padding: "0 11px" }}
-                      onClick={() => setRehydrateRight((v) => !v)}
-                      title="Toggle between locally restored names and raw [PII_*] tokens returned by Cloud AI"
-                    >
-                      {rehydrateRight ? "Showing: Restored Names" : "Showing: Cloud [PII_*]"}
-                    </button>
-                  </div>
+                  {rightTab === "qa" && (
+                    <div className="tab-controls-right">
+                      <button
+                        type="button"
+                        className="btn-outline-pill"
+                        style={{ height: "26px", fontSize: "11px", padding: "0 10px" }}
+                        onClick={() => setRehydrateRight((v) => !v)}
+                        title="Toggle between locally restored names and raw tokens returned by Cloud AI"
+                      >
+                        {rehydrateRight ? "Restored Names" : "Cloud Tokens"}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="right-panel-body">

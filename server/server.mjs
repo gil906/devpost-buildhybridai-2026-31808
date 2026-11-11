@@ -565,10 +565,18 @@ export function createAirlockServer() {
     }
     if (fs.existsSync(filePath)) {
       const ext = path.extname(filePath);
-      res.writeHead(200, {
+      const headers = {
         "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
-        "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable"
-      });
+        "Cache-Control":
+          ext === ".html"
+            ? "no-store, no-cache, must-revalidate, max-age=0"
+            : "public, max-age=31536000, immutable"
+      };
+      if (ext === ".html") {
+        headers["Pragma"] = "no-cache";
+        headers["Expires"] = "0";
+      }
+      res.writeHead(200, headers);
       fs.createReadStream(filePath).pipe(res);
       return;
     }

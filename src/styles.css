@@ -107,10 +107,10 @@ body {
   z-index: 1;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 174px minmax(0, 1fr);
+  grid-template-columns: 168px minmax(0, 1fr);
 }
 
-@media (max-width: 860px) {
+@media (max-width: 579px) {
   .pz-app {
     grid-template-columns: 1fr;
   }
@@ -132,7 +132,38 @@ body {
   overflow: hidden;
 }
 
-@media (max-width: 860px) {
+/* Proportional Studio Scaling on Foldables (Z Fold7 ~690px) & Tablets so the full 3-column desktop design stays intact */
+@media (min-width: 580px) and (max-width: 759px) {
+  .pz-app {
+    zoom: 0.56;
+    min-height: 179vh;
+  }
+  .pz-sidebar {
+    height: 179vh;
+  }
+}
+
+@media (min-width: 760px) and (max-width: 959px) {
+  .pz-app {
+    zoom: 0.68;
+    min-height: 148vh;
+  }
+  .pz-sidebar {
+    height: 148vh;
+  }
+}
+
+@media (min-width: 960px) and (max-width: 1240px) {
+  .pz-app {
+    zoom: 0.84;
+    min-height: 120vh;
+  }
+  .pz-sidebar {
+    height: 120vh;
+  }
+}
+
+@media (max-width: 579px) {
   .pz-sidebar {
     position: sticky;
     top: 0;
@@ -157,7 +188,7 @@ body {
   z-index: 2;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 579px) {
   .sidebar-top {
     flex-direction: row;
     align-items: center;
@@ -179,7 +210,7 @@ body {
   text-align: center;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 579px) {
   .brand-lockup {
     flex-direction: row;
     gap: 8px;
@@ -194,7 +225,7 @@ body {
   filter: drop-shadow(0 5px 12px rgba(59, 98, 246, 0.28));
 }
 
-@media (max-width: 860px) {
+@media (max-width: 579px) {
   .brand-shield {
     width: 30px;
     height: 30px;
@@ -209,7 +240,7 @@ body {
   color: var(--ink-900);
 }
 
-@media (max-width: 860px) {
+@media (max-width: 579px) {
   .brand-wordmark {
     font-size: 17px;
   }
@@ -221,7 +252,7 @@ body {
   gap: 5px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 579px) {
   .sidebar-nav {
     flex-direction: row;
     align-items: center;
@@ -249,7 +280,7 @@ body {
   white-space: nowrap;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 579px) {
   .sidebar-link {
     height: 32px;
     padding: 0 9px;
@@ -338,7 +369,7 @@ body {
   flex-wrap: wrap;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 579px) {
   .doc-tabs-row {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -559,7 +590,7 @@ body {
   align-items: stretch;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 579px) {
   .workspace-split {
     grid-template-columns: 1fr;
   }
@@ -578,7 +609,7 @@ body {
   overflow: hidden;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 579px) {
   .glass-panel {
     min-height: auto;
   }
@@ -713,7 +744,7 @@ body {
   max-height: 295px;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 579px) {
   .doc-paper,
   .doc-paper.compact {
     max-height: none;
@@ -890,7 +921,7 @@ body {
   pointer-events: none;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 579px) {
   .peek-tooltip {
     left: -92px;
     white-space: normal;
@@ -910,7 +941,7 @@ body {
   border-color: #1e2434 transparent transparent transparent;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 579px) {
   .peek-tooltip::after {
     left: 108px;
   }
