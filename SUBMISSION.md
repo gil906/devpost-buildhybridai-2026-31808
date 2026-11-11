@@ -1,68 +1,60 @@
 ## Why I built this
 
-If a resident pastes a hospital discharge summary into a cloud LLM and asks it to *"redact the patient's name and check for drug interactions,"* the HIPAA violation has already happened. The moment raw Patient Health Information crosses the TLS socket to an external endpoint without a Business Associate Agreement, 45 CFR §164.514(b)(2) is broken—no matter what the prompt asks the model to do afterward. Attorneys reviewing M&A disclosure schedules or litigation term sheets run into the exact same wall under FRE Rule 502 and Rule 408.
+Doctors and lawyers want to use Gemini on discharge notes and contracts, but pasting a real patient chart or M&A term sheet into a cloud prompt breaks privacy rules the instant it leaves the browser. Asking a cloud model to "ignore the patient's name and check for drug interactions" is already too late because the raw name and Social Security number just crossed the network.
 
-On the flip side, running everything on a small local model has its own ceiling. On-device **Gemini Nano** is fast, private, and free of network round-trips, which makes it great at spotting names, dates, MRNs, and case numbers inside a paragraph. What a compact local model cannot reliably do is cross-check renal CrCl dosing kinetics across five concurrent medications, map ICD-10-CM codes, or spot an uncapped consequential-damages carve-out buried in Section 7.4 of a cross-license agreement. **Cloud Gemini 2.5 Flash** handles that reasoning easily, provided you never feed it raw identities.
+Running everything on a tiny local model has the opposite problem. On-device **Gemini Nano** is fast and private, which makes it great at spotting names, dates, medical record numbers, and docket IDs locally. What a small local model struggles to do is cross-check kidney dosing across five medications or catch an uncapped liability clause buried in Section 7.4 of a contract. **Cloud Gemini 2.5 Flash** is great at that deeper analysis, as long as it never sees who the patient or client actually is.
 
-Most hybrid AI demos treat on-device inference as an offline fallback when Wi-Fi drops. **PII-Zero** uses Firebase AI Logic's hybrid modes (`ONLY_ON_DEVICE`, `PREFER_ON_DEVICE`, and `ONLY_IN_CLOUD`) to split the job across the hardware trust boundary:
+Instead of treating on-device AI as just an offline fallback when Wi-Fi drops, **PII-Zero** uses Firebase AI Logic's hybrid modes (`ONLY_ON_DEVICE`, `PREFER_ON_DEVICE`, and `ONLY_IN_CLOUD`) so each model does the job it is actually suited for.
 
-1. **On-device scrub & volatile RAM vault:** Local inference + a deterministic 18-class HIPAA Safe Harbor and legal privilege scanner replace sensitive spans with numbered, typed placeholders (`[PII_NAME_01]`, `[PII_MRN_01]`, `[PII_SSN_01]`, `[PII_DOCKET_01]`). The lookup table lives strictly in an in-memory `Map`—never `localStorage`, `IndexedDB`, cookies, or server logs.
-2. **Pre-socket SHA-256 gatekeeper:** Before `fetch()` or the cloud SDK opens a socket, an independent verifier re-scans the outbound text against both the vault values and all 18 statutory patterns. If a single raw SSN, MRN, phone number, or patient name remains, the request is aborted locally and `0 B` leaves the device.
-3. **Cloud Gemini 2.5 Flash synthesis:** Only the tokenized text crosses TLS to `GoogleAIBackend` (`gemini-2.5-flash`), protected by Firebase App Check.
-4. **Local token restoration:** When the structured response comes back, the client swaps `[PII_NAME_01]` back to `Elena Rostova` in memory so the clinician or attorney reads a normal, complete brief while Google's cloud prompt logs contain zero personal identifiers.
+![How PII-Zero Keeps Sensitive Records Private](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/851/099/datas/original.png)
 
-![PII-Zero Web Workbench — Dark Graphite Chartroom](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/404/datas/original.png)
+## How it works in 3 simple steps
 
----
+1. **Spot and hide private info locally (On-Device):** Gemini Nano paired with an 18-category HIPAA Safe Harbor and legal privilege scanner replaces names, SSNs, MRNs, addresses, and dollar figures with numbered tags like `[PII_NAME_01]` and `[PII_SSN_01]`. The original values stay in a temporary JavaScript `Map` in device RAM (never saved to disk, cookies, or `localStorage`).
+2. **Verify zero leaks before sending:** Right before opening a network request, a pre-send check scans the outgoing text one more time. If even one raw SSN, phone number, or patient name slipped through, the call is blocked on the spot and 0 bytes leave the device.
+3. **Analyze in Cloud Gemini 2.5 Flash and restore locally:** Google Cloud only receives the safe placeholder version, flags drug interactions or contract risks, and returns its answer using those same `[PII_*]` tags. Your browser or phone then swaps the real names back in locally so you read a normal, clear report.
 
-## Why numbered tokens matter (`[PII_NAME_01]` vs. `[REDACTED]`)
-
-Early on, I tried flat `[REDACTED]` masks and watched the cloud reasoning fall apart immediately. When an inpatient consult mentions a patient, an attending oncologist, and an emergency contact—or an M&A schedule names Buyer, Seller, and Escrow Agent—turning all three into `[REDACTED]` destroys who prescribed what to whom and makes it impossible to put the names back afterward.
-
-![Coreference-Preserving Tokens vs. Destructive Masks](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/407/datas/original.png)
-
-Assigning stable per-session entity numbers solves both problems at once:
-- Repeated mentions of the same person normalize to the same token (`Elena Rostova` and `Rostova, Elena` → `[PII_NAME_01]`), so Gemini 2.5 Flash keeps the full relationship graph intact.
-- During local restoration, tokens are sorted longest-first before substitution so `[PII_NAME_10]` never collides with `[PII_NAME_1]`.
+![PII-Zero 1-2-3 Document Studio on an Oncology Consult](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/851/098/datas/original.png)
 
 ---
 
-## Three working clients sharing one airlock model
+## Why numbered placeholders beat `[REDACTED]`
 
-Because clinicians and lawyers work across desktop browsers, web-based EHRs, and mobile/foldable devices on rounds, I built PII-Zero across three surfaces:
+When I first tested plain `[REDACTED]` bars, multi-person documents fell apart right away. Hospital notes mention a patient, an attending doctor, and a spouse. Contracts name a Buyer, a Seller, and an Escrow Agent. Turning everyone into `[REDACTED]` makes the cloud model lose track of who did what, and makes it impossible to restore the real names afterward.
 
-### 1. Web Clinical & Legal Workbench (`https://piizero.gilbertcv.com`)
-Built with React, TypeScript, Vite, and the official `firebase/ai` Web SDK (`getAI`, `getGenerativeModel`, `GoogleAIBackend`, `InferenceMode`, and `firebase/app-check` with `ReCaptchaEnterpriseProvider`).
-- Includes four domain test cases out of the box: an oncology renal-dosing consult (all 18 HIPAA Safe Harbor classes in one note), a cross-border M&A patent settlement (FRE 408), an emergency behavioral health intake (42 CFR Part 2 + QTc prolongation), and an implanted cardiac lead MDL notice (FDA 21 CFR 803).
-- A segmented lens switch toggles in real time between **Clinician view (restored)** and **Cloud wire view (`[PII_*]`)** so you can inspect byte-for-byte what crossed the network vs. what was reconstructed locally.
-- Supports both **Graphite dark** for low-light clinical stations and **Archival paper** for long contract review.
+![Why Numbered Placeholders Beat Flat REDACTED Bars](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/851/107/datas/original.png)
 
-![Archival Paper Theme — M&A Settlement Review](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/408/datas/original.png)
+Giving each unique person or ID a consistent numbered tag (`Elena Rostova` always maps to `[PII_NAME_01]`) keeps every relationship clear for Cloud Gemini 2.5 Flash. On the way back, replacing longest tags first (`[PII_NAME_10]` before `[PII_NAME_1]`) prevents prefix mix-ups.
 
-### 2. Wire Boundary Inspector & Leak-Block Test
-Clicking **Test leak block** deliberately appends an unredacted SSN (`419-82-6741`) after Stage 1 to prove Stage 2 isn't decorative: the pre-socket gatekeeper catches both the vault match and the raw SSN pattern, aborts network dispatch, and flags the exact leaked bytes before any packet is sent.
-
-![Wire Boundary Inspector & Pre-Socket Leak Block](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/406/datas/original.png)
-
-### 3. Chrome MV3 Side Panel Extension & Galaxy Z Fold7 Android App
-- **Chrome Extension (`chrome-extension/`):** Uses Manifest V3 `sidePanel`, `contextMenus`, `activeTab`, and `scripting`. Highlighting a clinical note or contract clause on any webpage and right-clicking *Scrub PII & Analyze* pulls the selection into a 360 px side panel, scrubs it locally, and lets you replace the live DOM `<textarea>` inline with one click before pasting into an external tool.
-- **Android App (`android/`):** Written in Kotlin with Jetpack Compose, `com.google.firebase:firebase-ai` (`Firebase.ai(backend = GenerativeBackend.googleAI())`), and `androidx.window.layout.FoldingFeature`. On an unfolded **Galaxy Z Fold7**, it renders a hinge-aware two-pane split (raw intake & local vault on the left, restored clinical/legal brief on the right with a 24 dp hinge gutter); on a folded cover screen, it collapses cleanly into a single-column tabbed view.
-
-![Companion Chrome MV3 Side Panel & Galaxy Z Fold7 Posture-Aware App](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/405/datas/original.png)
+![Legal M&A Settlement Review in PII-Zero](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/851/105/datas/original.png)
 
 ---
 
-## Hard bugs I hit while building it
+## Built for Web, Chrome Side Panel, and Android Foldables
 
-- **Overlapping spans between regex and NER:** An email like `elena.rostova@patientmail.org` or a URL containing an MRN can match both a person's name and an electronic address. If you replace the name first, you split the email in half (`[PII_NAME_01]@patientmail.org`), leaving a half-redacted fragment behind. I solved this by collecting candidate spans across all 18 rules + custom matter codewords first, resolving overlaps by specificity and span length, and splicing the string in a single reverse-offset pass.
-- **Domain misclassification on mixed medical-legal records:** Hospital lien consults contain both oncology lab values (`CrCl 39 mL/min`, `BRCA1`) and legal docket/escrow terms (`Case No. 1:26-cv-04821-JSR`). My initial classifier saw the word *"escrow"* and treated an oncology bleeding-risk consult like a patent settlement—caught during visual screenshot testing and fixed so clinical pharmacovigilance takes precedence whenever medical telemetry is present.
-- **Zero-trust server enforcement:** Even the companion Node 22 audit server (`server/server.mjs`) runs `detectRawPiiViolations()` on incoming payloads and returns `HTTP 422 ZERO_PII_AIRLOCK_REJECTED` if a client ever attempts to POST unredacted SSNs, MRNs, emails, or phone numbers.
+Because clinicians and attorneys move between desktop web apps, hospital EHR forms, and phones or tablets, I built three clients around the same core engine:
+
+- **Web Document Studio (`https://piizero.gilbertcv.com`):** Built with React, TypeScript, Vite, and the official `firebase/ai` SDK (`getAI`, `getGenerativeModel`, `GoogleAIBackend`, `InferenceMode`, plus Firebase App Check). Shows all three stages side by side (`1. Your Private Document` -> `2. What Google Cloud Sees` -> `3. Gemini 2.5 Flash Review`), includes four realistic medical and legal test cases, and has a one-click **Test Leak Blocker** button to watch the pre-send check catch an unredacted SSN live.
+- **Chrome Side Panel Extension (`chrome-extension/`):** A Manifest V3 extension using `sidePanel`, `contextMenus`, and `scripting`. Highlight text in any web form, right-click to scrub locally in the 360px side panel, and replace the form field with the safe redacted copy in one click.
+- **Android & Galaxy Z Fold7 App (`android/`):** Written in Kotlin with Jetpack Compose, `com.google.firebase:firebase-ai`, and Jetpack WindowManager `FoldingFeature`. On an unfolded Galaxy Z Fold7, it splits cleanly across the hinge (private note on the left screen, restored Gemini review on the right); on a folded phone screen, it switches to a clean single-column view.
+
+![Pre-Send Leak Blocker and Local RAM Vault](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/851/106/datas/original.png)
+
+![Chrome Side Panel Extension and Android Galaxy Z Fold7 App](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/851/109/datas/original.png)
+
+---
+
+## Tricky bugs I ran into and fixed
+
+- **Emails and URLs getting split in half:** An email like `elena.rostova@patientmail.org` contains both a person's name and an email address. Replacing the name first produced broken leftovers like `[PII_NAME_01]@patientmail.org`. Collecting all candidate matches across all 18 rules first, picking the longest/most specific match when ranges overlap, and splicing from the end of the string backward fixed it cleanly.
+- **Mixed medical-lien notes confusing the classifier:** Hospital lien records contain both lab values (`CrCl 39 mL/min`, `BRCA1`) and legal docket numbers (`Case No. 1:26-cv-04821-JSR`). At first, seeing the word "escrow" made the analyzer treat an oncology bleeding-risk consult like a patent contract. Prioritizing clinical lab signals whenever medications and vital signs are present solved that bug.
+- **Server-side backstop:** Even the companion Node 22 verification endpoint (`server/server.mjs`) checks incoming text and returns `HTTP 422` if a client ever tries to send raw SSNs, MRNs, emails, or phone numbers.
 
 ---
 
 ## Try it out
 
-- **Live Web Workbench:** [https://piizero.gilbertcv.com](https://piizero.gilbertcv.com)
-- **Source Code (MIT):** [https://github.com/gil906/devpost-buildhybridai-2026-31808](https://github.com/gil906/devpost-buildhybridai-2026-31808)
-- **Chrome MV3 Extension Bundle (`.zip`):** [https://piizero.gilbertcv.com/downloads/piizero-chrome-extension.zip](https://piizero.gilbertcv.com/downloads/piizero-chrome-extension.zip)
-- **Android Foldable Companion (`.apk`):** [https://piizero.gilbertcv.com/downloads/piizero-android-debug.apk](https://piizero.gilbertcv.com/downloads/piizero-android-debug.apk)
+- **Live Web Studio:** [https://piizero.gilbertcv.com](https://piizero.gilbertcv.com)
+- **GitHub Repository (MIT):** [https://github.com/gil906/devpost-buildhybridai-2026-31808](https://github.com/gil906/devpost-buildhybridai-2026-31808)
+- **Chrome Extension (`.zip`):** [https://piizero.gilbertcv.com/downloads/piizero-chrome-extension.zip](https://piizero.gilbertcv.com/downloads/piizero-chrome-extension.zip)
+- **Android App (`.apk`):** [https://piizero.gilbertcv.com/downloads/piizero-android-debug.apk](https://piizero.gilbertcv.com/downloads/piizero-android-debug.apk)

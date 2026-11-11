@@ -1,7 +1,7 @@
 {
-  "name": "PII-Zero — Clinical & Legal Hybrid AI Airlock",
-  "title": "PII-Zero — Clinical & Legal Hybrid AI Airlock",
-  "tagline": "Scrubs HIPAA & legal identifiers locally via Gemini Nano before sending zero-PII tokens to Cloud Gemini 2.5 Flash.",
+  "name": "PII-Zero: Local Privacy Shield for Medical & Legal AI",
+  "title": "PII-Zero: Local Privacy Shield for Medical & Legal AI",
+  "tagline": "Hides patient and client identities on your device with Gemini Nano before Cloud Gemini analyzes the document.",
   "built_with": [
     "firebase",
     "gemini",

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PII-Zero Hybrid AI Airlock</title>
+  <title>PII-Zero Privacy Shield</title>
   <link rel="stylesheet" href="./sidepanel.css" />
 </head>
 <body>
@@ -11,26 +11,26 @@
     <div class="brand-row">
       <div class="brand-title">
         <span class="status-dot" id="nanoStatusDot"></span>
-        <h1>PII-Zero · Side panel</h1>
+        <h1>PII-Zero Side Panel</h1>
       </div>
-      <span class="badge badge-safe" id="engineBadge">Nano + Flash</span>
+      <span class="badge badge-safe" id="engineBadge">0 PII sent</span>
     </div>
-    <p class="subtitle">HIPAA 18-identifier &amp; FRE 502 client-side redaction before cloud paste</p>
+    <p class="subtitle">Scrubs patient &amp; client names locally before Cloud Gemini sees a word</p>
 
     <div class="controls-grid">
       <label class="field-label">
-        <span>Inference mode (firebase/ai)</span>
+        <span>Local scrubber mode</span>
         <select id="modeSelect" class="ledger-select">
-          <option value="prefer_on_device">Prefer on-device (Nano → Cloud)</option>
-          <option value="only_on_device">Only on-device (Strict airgap)</option>
-          <option value="only_in_cloud">Sanitized cloud</option>
+          <option value="prefer_on_device">Prefer on-device (Gemini Nano)</option>
+          <option value="only_on_device">Only on-device (Strict local)</option>
+          <option value="only_in_cloud">Redacted cloud</option>
         </select>
       </label>
       <label class="field-label">
-        <span>Compliance profile</span>
+        <span>Document type</span>
         <select id="domainSelect" class="ledger-select">
-          <option value="clinical">Clinical chart (HIPAA Safe Harbor)</option>
-          <option value="legal">Legal contract / matter (FRE 502)</option>
+          <option value="clinical">Medical chart (HIPAA 18 rules)</option>
+          <option value="legal">Legal contract (Privilege rules)</option>
         </select>
       </label>
     </div>
@@ -39,10 +39,10 @@
   <main class="ledger-main">
     <section class="panel">
       <div class="panel-header">
-        <h2>Source text capture</h2>
+        <h2>1. Your private note</h2>
         <div class="preset-bar">
-          <button type="button" id="presetClinicalBtn" class="btn-secondary">Clinical sample</button>
-          <button type="button" id="presetLegalBtn" class="btn-secondary">Legal sample</button>
+          <button type="button" id="presetClinicalBtn" class="btn-secondary">Medical</button>
+          <button type="button" id="presetLegalBtn" class="btn-secondary">Legal</button>
         </div>
       </div>
 
@@ -50,46 +50,46 @@
         id="rawInput"
         class="ledger-textarea"
         rows="5"
-        placeholder="Select text on the active tab or paste a note here"
+        placeholder="Highlight text on the page or paste a note here"
       ></textarea>
 
       <div class="action-row">
-        <button type="button" id="pullSelectionBtn" class="btn-secondary">Pull selection</button>
-        <button type="button" id="runAirlockBtn" class="btn-primary">Run airlock</button>
+        <button type="button" id="pullSelectionBtn" class="btn-secondary">Grab selection</button>
+        <button type="button" id="runAirlockBtn" class="btn-primary">Scrub &amp; Analyze</button>
       </div>
     </section>
 
     <section class="kpi-strip">
       <div class="kpi-cell">
-        <span class="kpi-label">Scrubbed</span>
+        <span class="kpi-label">Hidden</span>
         <strong class="kpi-value text-amber" id="kpiTotalRedactions">0</strong>
       </div>
       <div class="kpi-cell">
-        <span class="kpi-label">Vault keys</span>
+        <span class="kpi-label">In RAM</span>
         <strong class="kpi-value text-safe" id="kpiUniqueTokens">0</strong>
       </div>
       <div class="kpi-cell">
-        <span class="kpi-label">Cloud PII</span>
+        <span class="kpi-label">Leaked</span>
         <strong class="kpi-value text-safe" id="kpiResidualCount">0</strong>
       </div>
       <div class="kpi-cell">
-        <span class="kpi-label">Latency</span>
+        <span class="kpi-label">Speed</span>
         <strong class="kpi-value" id="kpiLatency">—</strong>
       </div>
     </section>
 
     <section class="panel">
       <div class="panel-header">
-        <h2>Sanitized wire payload</h2>
+        <h2>2. Sent to Google Cloud</h2>
         <button type="button" id="replacePageSelectionBtn" class="btn-secondary">
           Replace in page
         </button>
       </div>
-      <pre id="redactedOutput" class="ledger-pre">Waiting for source text…</pre>
+      <pre id="redactedOutput" class="ledger-pre">Select text or choose a sample above…</pre>
 
       <div class="gatekeeper-bar" id="gatekeeperBanner">
         <div class="gatekeeper-row">
-          <span class="gatekeeper-status" id="gatekeeperStatus">Gatekeeper standby</span>
+          <span class="gatekeeper-status" id="gatekeeperStatus">Leak check ready</span>
           <span class="gatekeeper-bytes" id="gatekeeperBytes">0 B</span>
         </div>
         <div class="gatekeeper-hash" id="gatekeeperHash">SHA-256: —</div>
@@ -98,37 +98,37 @@
 
     <section class="panel">
       <div class="panel-header">
-        <h2>Local token vault</h2>
-        <span class="badge badge-amber" id="vaultPolicyBadge">Browser RAM only</span>
+        <h2>3. AI review (names restored)</h2>
+        <label class="toggle-wrap">
+          <input type="checkbox" id="rehydrateToggle" checked />
+          <span>Show real names</span>
+        </label>
+      </div>
+      <pre id="synthesisOutput" class="ledger-pre synthesis-box">Click Scrub &amp; Analyze to review…</pre>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Local lookup vault</h2>
+        <span class="badge badge-amber" id="vaultPolicyBadge">RAM only</span>
       </div>
       <div class="table-wrap">
         <table class="ledger-table">
           <thead>
             <tr>
-              <th>Token</th>
-              <th>Category</th>
-              <th>Masked raw</th>
+              <th>Placeholder</th>
+              <th>Type</th>
+              <th>Original</th>
               <th>Rule</th>
             </tr>
           </thead>
           <tbody id="vaultTableBody">
             <tr>
-              <td colspan="4" class="empty-cell">No tokens vaulted yet</td>
+              <td colspan="4" class="empty-cell">No items in memory yet</td>
             </tr>
           </tbody>
         </table>
       </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Cloud synthesis &amp; local restore</h2>
-        <label class="toggle-wrap">
-          <input type="checkbox" id="rehydrateToggle" checked />
-          <span>Restore vault tokens</span>
-        </label>
-      </div>
-      <pre id="synthesisOutput" class="ledger-pre synthesis-box">Run the airlock to generate a sanitized synthesis…</pre>
     </section>
   </main>
 
