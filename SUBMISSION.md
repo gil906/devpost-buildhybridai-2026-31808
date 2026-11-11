@@ -2,7 +2,7 @@
 
 **Client-side HIPAA & legal PII airlock built on the Firebase AI Logic Hybrid SDK (Web, Chrome MV3 & Android Foldable)**
 
-![PII-Zero Architecture & Hardware Trust Boundary](https://piizero.gilbertcv.com/media/01-architecture-diagram.png)
+![PII-Zero Architecture & Hardware Trust Boundary](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/403/datas/original.png)
 
 ## Why I built this
 
@@ -17,7 +17,7 @@ Most hybrid AI demos treat on-device inference as an offline fallback when Wi-Fi
 3. **Cloud Gemini 2.5 Flash synthesis:** Only the tokenized text crosses TLS to `GoogleAIBackend` (`gemini-2.5-flash`), protected by Firebase App Check.
 4. **Local token restoration:** When the structured response comes back, the client swaps `[PII_NAME_01]` back to `Elena Rostova` in memory so the clinician or attorney reads a normal, complete brief while Google's cloud prompt logs contain zero personal identifiers.
 
-![PII-Zero Web Workbench — Dark Graphite Chartroom](https://piizero.gilbertcv.com/media/02-workbench-dark-graphite.png)
+![PII-Zero Web Workbench — Dark Graphite Chartroom](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/404/datas/original.png)
 
 ---
 
@@ -25,7 +25,7 @@ Most hybrid AI demos treat on-device inference as an offline fallback when Wi-Fi
 
 Early on, I tried flat `[REDACTED]` masks and watched the cloud reasoning fall apart immediately. When an inpatient consult mentions a patient, an attending oncologist, and an emergency contact—or an M&A schedule names Buyer, Seller, and Escrow Agent—turning all three into `[REDACTED]` destroys who prescribed what to whom and makes it impossible to put the names back afterward.
 
-![Coreference-Preserving Tokens vs. Destructive Masks](https://piizero.gilbertcv.com/media/05-coreference-sequence-diagram.png)
+![Coreference-Preserving Tokens vs. Destructive Masks](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/407/datas/original.png)
 
 Assigning stable per-session entity numbers solves both problems at once:
 - Repeated mentions of the same person normalize to the same token (`Elena Rostova` and `Rostova, Elena` → `[PII_NAME_01]`), so Gemini 2.5 Flash keeps the full relationship graph intact.
@@ -43,18 +43,18 @@ Built with React, TypeScript, Vite, and the official `firebase/ai` Web SDK (`get
 - A segmented lens switch toggles in real time between **Clinician view (restored)** and **Cloud wire view (`[PII_*]`)** so you can inspect byte-for-byte what crossed the network vs. what was reconstructed locally.
 - Supports both **Graphite dark** for low-light clinical stations and **Archival paper** for long contract review.
 
-![Archival Paper Theme — M&A Settlement Review](https://piizero.gilbertcv.com/media/04-archival-paper-legal-mna.png)
+![Archival Paper Theme — M&A Settlement Review](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/408/datas/original.png)
 
 ### 2. Wire Boundary Inspector & Leak-Block Test
 Clicking **Test leak block** deliberately appends an unredacted SSN (`419-82-6741`) after Stage 1 to prove Stage 2 isn't decorative: the pre-socket gatekeeper catches both the vault match and the raw SSN pattern, aborts network dispatch, and flags the exact leaked bytes before any packet is sent.
 
-![Wire Boundary Inspector & Pre-Socket Leak Block](https://piizero.gilbertcv.com/media/03-wire-boundary-and-leak-guard.png)
+![Wire Boundary Inspector & Pre-Socket Leak Block](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/406/datas/original.png)
 
 ### 3. Chrome MV3 Side Panel Extension & Galaxy Z Fold7 Android App
 - **Chrome Extension (`chrome-extension/`):** Uses Manifest V3 `sidePanel`, `contextMenus`, `activeTab`, and `scripting`. Highlighting a clinical note or contract clause on any webpage and right-clicking *Scrub PII & Analyze* pulls the selection into a 360 px side panel, scrubs it locally, and lets you replace the live DOM `<textarea>` inline with one click before pasting into an external tool.
 - **Android App (`android/`):** Written in Kotlin with Jetpack Compose, `com.google.firebase:firebase-ai` (`Firebase.ai(backend = GenerativeBackend.googleAI())`), and `androidx.window.layout.FoldingFeature`. On an unfolded **Galaxy Z Fold7**, it renders a hinge-aware two-pane split (raw intake & local vault on the left, restored clinical/legal brief on the right with a 24 dp hinge gutter); on a folded cover screen, it collapses cleanly into a single-column tabbed view.
 
-![Companion Chrome MV3 Side Panel & Galaxy Z Fold7 Posture-Aware App](https://piizero.gilbertcv.com/media/06-chrome-mv3-and-zfold7-posture.png)
+![Companion Chrome MV3 Side Panel & Galaxy Z Fold7 Posture-Aware App](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/405/datas/original.png)
 
 ---
 
