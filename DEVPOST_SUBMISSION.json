@@ -1,7 +1,7 @@
 {
-  "name": "PII-Zero: Zero-Trust Hybrid AI for Sensitive Documents",
-  "title": "PII-Zero: Zero-Trust Hybrid AI for Sensitive Documents",
-  "tagline": "Masked locally on-device with Gemini Nano • Analyzed safely in the cloud with Gemini Flash • 0 PII exposed",
+  "name": "PII-Zero",
+  "title": "PII-Zero",
+  "tagline": "Mask names, SSNs, and private details on your device before Cloud AI reads your documents.",
   "built_with": [
     "firebase",
     "gemini",
