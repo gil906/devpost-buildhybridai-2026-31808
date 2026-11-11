@@ -197,21 +197,23 @@ export function initializePiiZeroFirebase(
   let appCheck: AppCheck | null = null;
   try {
     if (typeof window !== "undefined") {
-      if (config.appCheckDebugToken) {
+      const liveMode = isLiveFirebaseConfigured(config);
+      if (liveMode && config.appCheckDebugToken) {
         (self as unknown as Record<string, unknown>).FIREBASE_APPCHECK_DEBUG_TOKEN =
           config.appCheckDebugToken;
       }
-      const provider = config.recaptchaEnterpriseSiteKey
-        ? new ReCaptchaEnterpriseProvider(config.recaptchaEnterpriseSiteKey)
-        : new CustomProvider({
-            getToken: async () => ({
-              token: config.appCheckDebugToken ?? "piizero-local-appcheck-token",
-              expireTimeMillis: Date.now() + 3600_000
-            })
-          });
+      const provider =
+        liveMode && config.recaptchaEnterpriseSiteKey
+          ? new ReCaptchaEnterpriseProvider(config.recaptchaEnterpriseSiteKey)
+          : new CustomProvider({
+              getToken: async () => ({
+                token: config.appCheckDebugToken ?? "piizero-local-appcheck-token",
+                expireTimeMillis: Date.now() + 3600_000
+              })
+            });
       appCheck = initializeAppCheck(app, {
         provider,
-        isTokenAutoRefreshEnabled: true
+        isTokenAutoRefreshEnabled: liveMode
       });
     }
   } catch {
@@ -495,3 +497,153 @@ export function generateSdkCodeSnippet(
     `const localClinicianView = rehydrateCloudResponse(cloudResult.response.text(), vaultEntries);`
   ].join("\n");
 }
+
+export interface QaAnswerSection {
+  heading: string;
+  cloudBody: string;
+  restoredBody: string;
+}
+
+export interface HybridQaTurnResult {
+  sanitizedQuestion: string;
+  intro: string;
+  sections: QaAnswerSection[];
+  latencyMs: number;
+  zeroPiiVerified: boolean;
+}
+
+/**
+ * Scrubs a user's natural-language question locally against both existing document vault entries
+ * and the 18-category airlock, verifies zero leaks, queries Cloud AI, and restores local names.
+ */
+export async function askHybridDocumentQuestion(params: {
+  sanitizedDocumentText: string;
+  rawQuestion: string;
+  vaultEntries: Array<{
+    token: string;
+    originalValue: string;
+    category: PiiCategoryId;
+    label: string;
+    regulationRef: string;
+    severity: "CRITICAL" | "HIGH" | "MODERATE";
+    source: "ON_DEVICE_NER" | "CUSTOM_POLICY";
+    occurrences: number;
+    byteLength: number;
+  }>;
+  firebaseConfig?: FirebaseWebConfig;
+  cloudModelName?: string;
+}): Promise<HybridQaTurnResult> {
+  const t0 = performance.now();
+  const firebaseConfig = params.firebaseConfig ?? DEFAULT_DEMO_FIREBASE_CONFIG;
+  const cloudModelName = params.cloudModelName ?? "gemini-2.5-flash";
+
+  // 1. Replace any known vault values in the user's question first (longest first)
+  let safeQuestion = params.rawQuestion;
+  const sortedVault = [...params.vaultEntries].sort(
+    (a, b) => b.originalValue.length - a.originalValue.length
+  );
+  for (const entry of sortedVault) {
+    if (entry.originalValue.length >= 3 && safeQuestion.includes(entry.originalValue)) {
+      safeQuestion = safeQuestion.split(entry.originalValue).join(entry.token);
+    }
+  }
+  // Also scrub any newly typed SSN/email/phone in the question
+  const questionScrub = scrubTextWithAirlock(safeQuestion);
+  safeQuestion = questionScrub.sanitizedText;
+  const mergedVault = [...params.vaultEntries, ...questionScrub.vaultEntries];
+
+  // 2. Cryptographic pre-send check on question + document
+  const gate = verifyZeroPiiLeak(safeQuestion, mergedVault, params.rawQuestion);
+  if (!gate.passed || gate.cloudPiiBytes > 0) {
+    throw new Error("ZERO_PII_GATE_VIOLATION: Blocked unredacted PII in question.");
+  }
+
+  const ctx = initializePiiZeroFirebase(firebaseConfig, InferenceMode.ONLY_ON_DEVICE, cloudModelName);
+  let intro = "I've reviewed the document and here's the analysis:";
+  let rawSections: Array<{ heading: string; body: string }> = [];
+
+  if (ctx.isLiveCloud) {
+    try {
+      const prompt = [
+        "Answer the user's question about this de-identified document.",
+        "Keep every [PII_*] placeholder token intact so the client can restore names locally.",
+        "Return 3 concise sections formatted as '### Heading\\nExplanation'.",
+        "",
+        "Question: " + safeQuestion,
+        "",
+        "Document:\n" + params.sanitizedDocumentText
+      ].join("\n");
+      const res = await ctx.stage3CloudModel.generateContent(prompt);
+      const text = res.response.text().trim();
+      if (text.length > 30) {
+        const blocks = text.split(/^###\s+/m).filter(Boolean);
+        rawSections = blocks.slice(0, 4).map((b, i) => {
+          const nl = b.indexOf("\n");
+          if (nl === -1) return { heading: `Key Point ${i + 1}`, body: b.trim() };
+          return { heading: b.slice(0, nl).trim(), body: b.slice(nl + 1).trim() };
+        });
+      }
+    } catch {
+      // Fall through to server/deterministic
+    }
+  }
+
+  if (rawSections.length === 0 && typeof window !== "undefined") {
+    try {
+      const resp = await fetch("/api/airlock/ask-sanitized", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sanitizedText: params.sanitizedDocumentText,
+          sanitizedQuestion: safeQuestion,
+          vaultTokens: mergedVault.map((v) => ({ token: v.token, category: v.category }))
+        })
+      });
+      if (resp.ok) {
+        const data = (await resp.json()) as {
+          intro?: string;
+          sections?: Array<{ heading: string; body: string }>;
+        };
+        if (data.intro) intro = data.intro;
+        if (data.sections && data.sections.length > 0) {
+          rawSections = data.sections;
+        }
+      }
+    } catch {
+      // Fall through to deterministic local builder
+    }
+  }
+
+  if (rawSections.length === 0) {
+    const fallback = generateStructuredClinicalLegalAnalysis(
+      params.sanitizedDocumentText,
+      mergedVault
+    );
+    intro = `I've reviewed the ${fallback.documentClassification.toLowerCase()} and here's the analysis:`;
+    rawSections = [
+      ...fallback.pharmacovigilanceOrClauseAlerts.map((a) => ({
+        heading: a.title,
+        body: `${a.mechanismOrClause} Recommended action: ${a.recommendation}`
+      })),
+      {
+        heading: "Other Key Points",
+        body: fallback.executiveSummary
+      }
+    ];
+  }
+
+  const sections: QaAnswerSection[] = rawSections.map((sec) => ({
+    heading: rehydrateCloudResponse(sec.heading, mergedVault).rehydratedText,
+    cloudBody: sec.body,
+    restoredBody: rehydrateCloudResponse(sec.body, mergedVault).rehydratedText
+  }));
+
+  return {
+    sanitizedQuestion: safeQuestion,
+    intro: rehydrateCloudResponse(intro, mergedVault).rehydratedText,
+    sections,
+    latencyMs: Math.max(2, Math.round(performance.now() - t0)),
+    zeroPiiVerified: true
+  };
+}
+

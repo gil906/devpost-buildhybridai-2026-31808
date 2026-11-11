@@ -1,12 +1,12 @@
 :root {
-  --bg-canvas: #f4f3ee;
+  --bg-canvas: #e9effa;
   --bg-panel: #ffffff;
-  --bg-elevated: #f9f8f5;
-  --border-ruled: #e3e0d6;
-  --text-primary: #171715;
-  --text-muted: #6e6b63;
+  --bg-elevated: #f5f8fd;
+  --border-ruled: #dbe5f3;
+  --text-primary: #0f1b33;
+  --text-muted: #56657f;
   --accent-safe: #15803d;
-  --accent-amber: #92400e;
+  --accent-amber: #5b21b6;
   --accent-danger: #b91c1c;
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -160,14 +160,14 @@ button {
 }
 
 .btn-primary {
-  background-color: #171715;
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
   color: #ffffff;
-  border-color: #171715;
+  border-color: #2563eb;
   font-weight: 600;
 }
 
 .btn-primary:hover {
-  background-color: #2d2c28;
+  background: #1d4ed8;
 }
 
 .btn-secondary {

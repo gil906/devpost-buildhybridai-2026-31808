@@ -1,13 +1,15 @@
-# PII-Zero: Local Privacy Shield for Medical & Legal AI
+# PII-Zero: Zero-Trust Hybrid AI for Sensitive Documents
 
-**Live Document Studio:** [https://piizero.gilbertcv.com](https://piizero.gilbertcv.com)  
+**Live Workspace:** [https://piizero.gilbertcv.com](https://piizero.gilbertcv.com)  
 **Companion Downloads:** [Chrome Side Panel Extension (`.zip`)](https://piizero.gilbertcv.com/downloads/piizero-chrome-extension.zip) · [Android Foldable App (`.apk`)](https://piizero.gilbertcv.com/downloads/piizero-android-debug.apk)
 
-![How PII-Zero Keeps Sensitive Records Private](docs/images/02-visual-architecture-diagram.png)
+![PII-Zero Hero Cover](docs/images/00-cover-hero.png)
 
-PII-Zero lets clinicians and attorneys analyze sensitive medical charts and legal contracts with **Cloud Gemini 2.5 Flash** without ever sending a patient or client's real identity across the network. Built on the **Firebase AI Logic Hybrid SDK** (`firebase/ai` on Web/Chrome and `com.google.firebase:firebase-ai` on Android), it scrubs personal identifiers locally on the device first, verifies zero leaks before sending, and restores the real names on your screen when the answer comes back.
+PII-Zero lets clinicians, attorneys, and enterprises analyze sensitive medical charts and legal contracts with **Cloud Gemini 2.5 Flash** without ever sending personal or confidential identifiers across the network. Built on the **Firebase AI Logic Hybrid SDK** (`firebase/ai` on Web/Chrome and `com.google.firebase:firebase-ai` on Android), it masks personal entities locally on the device first, verifies zero leaks before sending, and restores the real names on your screen when the answer comes back.
 
-![PII-Zero 1-2-3 Document Studio](docs/images/01-workbench-3step-studio.png)
+![Medical Record Workspace](docs/images/01-workbench-3step-studio.png)
+
+![NDA Contract Redacted View, Local Entity Vault & Q&A Assistant](docs/images/03-legal-contract-review.png)
 
 ---
 

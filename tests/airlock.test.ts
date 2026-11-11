@@ -15,6 +15,7 @@ import {
   buildHybridModelParams,
   initializePiiZeroFirebase,
   runHybridAirlockPipeline,
+  askHybridDocumentQuestion,
   generateSdkCodeSnippet,
   resetPiiZeroFirebaseInstances
 } from "../src/engine/firebaseHybridSdk";
@@ -199,6 +200,47 @@ describe("PII-Zero Hybrid AI Airlock Engine & 18-Category HIPAA/Legal Scrubber",
       expect(goodResp.status).toBe(200);
       const goodJson = (await goodResp.json()) as { zeroPiiVerified: boolean };
       expect(goodJson.zeroPiiVerified).toBe(true);
+
+      // Reject raw PII in /api/airlock/ask-sanitized question
+      const badQa = await fetch(`${baseUrl}/api/airlock/ask-sanitized`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sanitizedText: "Agreement for [PII_NAME_01]",
+          sanitizedQuestion: "Check SSN 419-82-6741"
+        })
+      });
+      expect(badQa.status).toBe(422);
+
+      // Accept sanitized Q&A request and verify local question scrubbing + restoration
+      const goodQa = await fetch(`${baseUrl}/api/airlock/ask-sanitized`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sanitizedText: "Patent cross-license agreement for [PII_NAME_01] under [PII_CUSTOM_01].",
+          sanitizedQuestion: "Are there any risky clauses for [PII_CUSTOM_01]?",
+          vaultTokens: [
+            { token: "[PII_NAME_01]", category: "PATIENT_CLIENT_NAME" },
+            { token: "[PII_CUSTOM_01]", category: "CUSTOM_POLICY" }
+          ]
+        })
+      });
+      expect(goodQa.status).toBe(200);
+      const qaJson = (await goodQa.json()) as { zeroPiiVerified: boolean; sections: unknown[] };
+      expect(qaJson.zeroPiiVerified).toBe(true);
+      expect(qaJson.sections.length).toBeGreaterThan(0);
+
+      // Verify client-side askHybridDocumentQuestion scrubs raw names in the user's question and restores them locally
+      const preset2 = CLINICAL_LEGAL_PRESETS[1];
+      const scrub2 = scrubTextWithAirlock(preset2.rawDocument, { customTerms: preset2.defaultCustomTerms });
+      const clientQa = await askHybridDocumentQuestion({
+        sanitizedDocumentText: scrub2.sanitizedText,
+        rawQuestion: "Are there any liability carve-outs for Aetheris Robotics GmbH or Hendrik Van Der Berg?",
+        vaultEntries: scrub2.vaultEntries
+      });
+      expect(clientQa.sanitizedQuestion).not.toContain("Aetheris Robotics GmbH");
+      expect(clientQa.sanitizedQuestion).not.toContain("Hendrik Van Der Berg");
+      expect(clientQa.sections.some((s) => s.restoredBody.includes("SN-ROBO-774109"))).toBe(true);
     } finally {
       server.close();
     }

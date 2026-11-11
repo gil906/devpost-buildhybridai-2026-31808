@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   PII_CATEGORIES,
   CLINICAL_LEGAL_PRESETS,
@@ -10,23 +10,158 @@ import {
   InferenceMode,
   DEFAULT_DEMO_FIREBASE_CONFIG,
   runHybridAirlockPipeline,
+  askHybridDocumentQuestion,
   generateSdkCodeSnippet,
   isLiveFirebaseConfigured,
   type FirebaseWebConfig,
-  type HybridPipelineExecutionResult
+  type HybridPipelineExecutionResult,
+  type QaAnswerSection
 } from "./engine/firebaseHybridSdk";
 
-type WorkspaceTab = "studio" | "vault" | "apps";
-type ThemeMode = "light" | "dark";
+type SidebarNav = "home" | "document" | "history" | "settings" | "help";
+type LeftDocTab = "document" | "redacted" | "audit";
+type RightPanelTab = "insights" | "qa";
+type PillColor = "blue" | "green" | "purple" | "amber";
 
-const PRESET_SHORT_META = [
-  { label: "Oncology Consult", tag: "Medical" },
-  { label: "M&A Settlement", tag: "Legal" },
-  { label: "ER Triage Note", tag: "Psych" },
-  { label: "Cardiac Device Claim", tag: "FDA" }
-];
+interface DocTabMeta {
+  id: string;
+  fileName: string;
+  ext: "pdf" | "docx";
+  instTitle: string;
+  instSub: string;
+  reportTitle: string;
+  isLegal: boolean;
+  defaultQuestion: string;
+  quickChips: string[];
+  kpi1Label: string;
+  kpi1Main: string;
+  kpi2Label: string;
+  kpi2Main: string;
+  kpi2Sub: string;
+  kpi3Label: string;
+  kpi3Main: string;
+  kpi3Sub: string;
+}
 
-const KOTLIN_SDK_SNIPPET = `// Android (Galaxy Z Fold7) - com.google.firebase:firebase-ai
+const PRESET_DOC_META: Record<string, DocTabMeta> = {
+  "preset-clinical-oncology-18": {
+    id: "preset-clinical-oncology-18",
+    fileName: "Medical Record.pdf",
+    ext: "pdf",
+    instTitle: "Riverside & St. Jude Oncology Center",
+    instSub: "123 Health Way · Inpatient Pharmacokinetics & Medical-Legal Review",
+    reportTitle: "Patient Medical Report",
+    isLegal: false,
+    defaultQuestion:
+      "Are there any dangerous drug interactions or renal dosing concerns for Elena Rostova?",
+    quickChips: [
+      "Summarize this record",
+      "What are the key findings?",
+      "Any drug interaction concerns?"
+    ],
+    kpi1Label: "Patient Info",
+    kpi1Main: "1 Patient",
+    kpi2Label: "Renal & ANC Lab",
+    kpi2Main: "CrCl 39 mL/m",
+    kpi2Sub: "ANC 420/mm³ · Tmax 39.2°C",
+    kpi3Label: "Key Findings",
+    kpi3Main: "CYP3A4 DDI",
+    kpi3Sub: "Apixaban + Clarithromycin"
+  },
+  "preset-legal-ma-settlement": {
+    id: "preset-legal-ma-settlement",
+    fileName: "NDA Contract.docx",
+    ext: "docx",
+    instTitle: "Confidential Non-Disclosure & Patent Agreement",
+    instSub: "Cross-Border IP Licensing, Non-Compete & Escrow Term Sheet (FRE 408)",
+    reportTitle: "Non-Disclosure & Settlement Agreement",
+    isLegal: true,
+    defaultQuestion:
+      "Are there any risky indemnity clauses or unusual liability terms for Aetheris Robotics GmbH?",
+    quickChips: [
+      "Summarize key risks",
+      "What are the restrictions?",
+      "Can Section 7.4 be modified?"
+    ],
+    kpi1Label: "Contract Parties",
+    kpi1Main: "2 Parties",
+    kpi2Label: "Escrow Exposure",
+    kpi2Main: "2 Tranches",
+    kpi2Sub: "Wire & Milestone Holdback",
+    kpi3Label: "Key Findings",
+    kpi3Main: "Uncapped §7.4",
+    kpi3Sub: "Consequential Liability Risk"
+  },
+  "preset-psych-42cfr": {
+    id: "preset-psych-42cfr",
+    fileName: "ER Psych Triage.pdf",
+    ext: "pdf",
+    instTitle: "Harborview Behavioral Pavilion",
+    instSub: "42 CFR Part 2 Dual-Protected Substance Use & Pharmacology Intake",
+    reportTitle: "Behavioral Health & MAT Triage Report",
+    isLegal: false,
+    defaultQuestion:
+      "Is carbamazepine or methadone safe given Devon Kowalski's ECG and genomic panel?",
+    quickChips: [
+      "Check QTc 488ms risk",
+      "Review HLA-B*15:02 lock",
+      "Summarize MAT induction plan"
+    ],
+    kpi1Label: "Patient Info",
+    kpi1Main: "1 Patient",
+    kpi2Label: "ECG Telemetry",
+    kpi2Main: "QTc 488 ms",
+    kpi2Sub: "COWS Withdrawal Score 19",
+    kpi3Label: "Key Findings",
+    kpi3Main: "SJS/TEN Lock",
+    kpi3Sub: "HLA-B*15:02 Positive"
+  },
+  "preset-fda-medwatch-udi": {
+    id: "preset-fda-medwatch-udi",
+    fileName: "FDA MedWatch.pdf",
+    ext: "pdf",
+    instTitle: "FDA MedWatch 3500A Field Investigation",
+    instSub: "21 CFR Part 803 Cardiac Rhythm UDI Telemetry & MDL Bellwether Audit",
+    reportTitle: "Adverse Device Event & Bellwether Report",
+    isLegal: true,
+    defaultQuestion:
+      "Does this CardioPulse Gen4 Lead event trigger the 5-day FDA 3500A reporting clock?",
+    quickChips: [
+      "Check 5-day FDA deadline",
+      "Summarize RV lead failure",
+      "What is the MDL exposure?"
+    ],
+    kpi1Label: "Claimant Info",
+    kpi1Main: "1 Claimant",
+    kpi2Label: "Lead Impedance",
+    kpi2Main: ">3,000 Ohms",
+    kpi2Sub: "36J Inappropriate Shock",
+    kpi3Label: "Key Findings",
+    kpi3Main: "5-Day 3500A",
+    kpi3Sub: "21 CFR §803.53 Triggered"
+  }
+};
+
+interface QaConversationItem {
+  id: string;
+  question: string;
+  sanitizedQuestion: string;
+  timestamp: string;
+  intro: string;
+  sections: QaAnswerSection[];
+}
+
+interface AuditHistoryEntry {
+  id: string;
+  fileName: string;
+  ext: "pdf" | "docx";
+  presetId: string;
+  maskedCount: number;
+  sha256Short: string;
+  whenLabel: string;
+}
+
+const KOTLIN_SDK_SNIPPET = `// Android & Galaxy Z Fold7 — com.google.firebase:firebase-ai
 val scrub = PiiAirlockEngine.scrub(rawClinicalNote, customPolicyTerms)
 check(PiiAirlockEngine.verifyZeroLeak(scrub.sanitizedText, scrub.vault).passed) {
     "Blocked outbound request: raw patient or client identifier detected"
@@ -38,222 +173,325 @@ val cloudModel = Firebase.ai(backend = GenerativeBackend.googleAI())
 val response = cloudModel.generateContent(scrub.sanitizedText)
 val restoredView = PiiAirlockEngine.rehydrate(response.text.orEmpty(), scrub.vault)`;
 
-/**
- * Highlights detected raw PII spans in Step 1 (coral highlight)
- */
-function renderRawHighlightedLine(line: string, vaultEntries: VaultEntry[]): React.ReactNode {
-  const values = vaultEntries
-    .map((v) => v.originalValue)
-    .filter((v) => v.length >= 3)
-    .sort((a, b) => b.length - a.length);
-  if (values.length === 0) return line;
-  const escaped = values.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const rx = new RegExp("(" + escaped.join("|") + ")", "g");
-  const lookup = new Map<string, VaultEntry>();
-  for (const entry of vaultEntries) {
-    if (!lookup.has(entry.originalValue)) lookup.set(entry.originalValue, entry);
+function getCategoryColor(cat: PiiCategoryId): PillColor {
+  switch (cat) {
+    case "PATIENT_CLIENT_NAME":
+    case "COUNSEL_JUDGE":
+    case "CUSTOM_POLICY":
+      return "blue";
+    case "DOB_AGE":
+    case "ADDRESS_ZIP":
+    case "SETTLEMENT_AMOUNT":
+      return "green";
+    case "SSN":
+    case "MRN":
+    case "ACCOUNT_IBAN":
+    case "HEALTH_PLAN_ID":
+    case "BIOMETRIC_GENETIC":
+    case "DEVICE_UDI":
+    case "CASE_DOCKET":
+      return "purple";
+    default:
+      return "amber";
   }
-  return line.split(rx).map((part, idx) => {
-    const matched = lookup.get(part);
-    if (matched) {
-      return (
-        <span
-          key={idx}
-          className="mark-raw"
-          title={`Detected locally (${matched.label}) -> replaced by ${matched.token}`}
-        >
-          {part}
-        </span>
-      );
-    }
-    return <React.Fragment key={idx}>{part}</React.Fragment>;
-  });
 }
 
-/**
- * Renders placeholder tokens in Step 2 (amber monospace pills) or restored values in Step 3 (sage green)
- */
-function renderTokenOrRestoredSegment(
-  text: string,
-  vaultEntries: VaultEntry[],
-  mode: "tokens" | "restored"
-): React.ReactNode {
-  if (!text) return null;
-  if (mode === "tokens") {
-    const byToken = new Map<string, VaultEntry>();
-    for (const v of vaultEntries) byToken.set(v.token, v);
-    const parts = text.split(/(\[PII_[A-Z_]+_\d+\])/g);
-    return parts.map((part, idx) => {
-      if (/^\[PII_[A-Z_]+_\d+\]$/.test(part)) {
-        const entry = byToken.get(part);
-        return (
-          <span
-            key={idx}
-            className="mark-token"
-            title={
-              entry
-                ? `Kept in local RAM: "${entry.originalValue}" (${entry.label})`
-                : "Safe placeholder sent to Google Cloud"
-            }
-          >
-            {part}
-          </span>
-        );
-      }
-      return <React.Fragment key={idx}>{part}</React.Fragment>;
-    });
+function getCategoryShortType(cat: PiiCategoryId): string {
+  switch (cat) {
+    case "PATIENT_CLIENT_NAME":
+      return "Person";
+    case "COUNSEL_JUDGE":
+      return "Counsel / Judge";
+    case "CUSTOM_POLICY":
+      return "Company / Policy";
+    case "DOB_AGE":
+      return "Date / Age";
+    case "ADDRESS_ZIP":
+      return "Address";
+    case "SETTLEMENT_AMOUNT":
+      return "Amount";
+    case "SSN":
+      return "SSN";
+    case "MRN":
+      return "Medical ID";
+    case "ACCOUNT_IBAN":
+      return "Account / IBAN";
+    case "CASE_DOCKET":
+      return "Docket ID";
+    case "DEVICE_UDI":
+      return "Device UDI";
+    case "BIOMETRIC_GENETIC":
+      return "Genomic / Bio";
+    case "EMAIL":
+      return "Email";
+    case "PHONE_FAX":
+      return "Phone";
+    default:
+      return "Identifier";
   }
-
-  const values = vaultEntries
-    .map((v) => v.originalValue)
-    .filter((v) => v.length >= 3)
-    .sort((a, b) => b.length - a.length);
-  if (values.length === 0) return text;
-  const escaped = values.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const rx = new RegExp("(" + escaped.join("|") + ")", "g");
-  const lookup = new Map<string, VaultEntry>();
-  for (const v of vaultEntries) {
-    if (!lookup.has(v.originalValue)) lookup.set(v.originalValue, v);
-  }
-  return text.split(rx).map((part, idx) => {
-    const entry = lookup.get(part);
-    if (entry) {
-      return (
-        <span
-          key={idx}
-          className="mark-restored"
-          title={`Restored on your device from ${entry.token} (Google Cloud never saw "${part}")`}
-        >
-          {part}
-        </span>
-      );
-    }
-    return <React.Fragment key={idx}>{part}</React.Fragment>;
-  });
 }
 
-function renderFormattedLines(
-  text: string,
-  vaultEntries: VaultEntry[],
-  mode: "raw" | "tokens" | "restored"
-): React.ReactNode {
-  if (!text) return null;
-  const lines = text.split("\n");
-  return lines.map((line, idx) => {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      return <div key={idx} style={{ height: "8px" }} />;
+function maskDisplayValue(entry: VaultEntry, isVisible: boolean): string {
+  if (!isVisible) {
+    if (entry.category === "SSN" && entry.originalValue.length >= 4) {
+      return "***-**-" + entry.originalValue.slice(-4);
     }
-    if (idx === 0 && /^[A-Z0-9\s&—–\-():/]+$/.test(trimmed) && trimmed.length > 14) {
-      return (
-        <div key={idx} className="doc-line-header">
-          {trimmed}
-        </div>
-      );
-    }
-    if (trimmed.startsWith("### ")) {
-      return (
-        <div key={idx} className="doc-line-header">
-          {trimmed.slice(4)}
-        </div>
-      );
-    }
-    if (mode === "raw") {
-      return (
-        <div key={idx} className="doc-line">
-          {renderRawHighlightedLine(line, vaultEntries)}
-        </div>
-      );
-    }
-    const boldParts = line.split(/(\*\*[^*]+\*\*)/g);
+    return "••••••••••";
+  }
+  return entry.originalValue;
+}
+
+function PillMiniIcon({ category }: { category: PiiCategoryId }) {
+  if (category === "PATIENT_CLIENT_NAME" || category === "COUNSEL_JUDGE") {
     return (
-      <div key={idx} className="doc-line">
-        {boldParts.map((seg, sIdx) => {
-          if (seg.startsWith("**") && seg.endsWith("**")) {
-            return (
-              <strong key={sIdx} style={{ fontWeight: 600, color: "var(--fg-primary)" }}>
-                {seg.slice(2, -2)}
-              </strong>
-            );
-          }
-          return (
-            <React.Fragment key={sIdx}>
-              {renderTokenOrRestoredSegment(seg, vaultEntries, mode)}
-            </React.Fragment>
-          );
-        })}
-      </div>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2.2c-3.8 0-7.5 1.9-7.5 4.6V21h15v-2.2c0-2.7-3.7-4.6-7.5-4.6z" />
+      </svg>
     );
-  });
+  }
+  if (category === "DOB_AGE") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+        <rect x="3" y="5" width="18" height="16" rx="2.5" />
+        <path d="M16 3v4M8 3v4M3 10h18" />
+      </svg>
+    );
+  }
+  if (category === "ADDRESS_ZIP") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+        <path d="M12 21s-7-5.7-7-11a7 7 0 1 1 14 0c0 5.3-7 11-7 11z" />
+        <circle cx="12" cy="10" r="2.5" />
+      </svg>
+    );
+  }
+  if (category === "SETTLEMENT_AMOUNT") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+      <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
+    </svg>
+  );
 }
 
-function replaceTokensWithValues(text: string, vaultEntries: VaultEntry[]): string {
+function ShieldSparkleLogo() {
+  return (
+    <svg className="brand-shield" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="pzShieldGrad" x1="4" y1="3" x2="36" y2="37" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#2563eb" />
+          <stop offset="55%" stopColor="#4f46e5" />
+          <stop offset="100%" stopColor="#7c3aed" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M20 3L34 8.6v10.2c0 8.6-5.9 15.9-14 18.2C11.9 34.7 6 27.4 6 18.8V8.6L20 3z"
+        fill="url(#pzShieldGrad)"
+      />
+      <path
+        d="M20 9.2l8.5 3.4v6.2c0 5.4-3.6 10.1-8.5 11.8-4.9-1.7-8.5-6.4-8.5-11.8v-6.2L20 9.2z"
+        fill="#ffffff"
+        fillOpacity="0.16"
+      />
+      <path
+        d="M20 11.5l2.3 5.2 5.2 2.3-5.2 2.3-2.3 5.2-2.3-5.2-5.2-2.3 5.2-2.3 2.3-5.2z"
+        fill="#ffffff"
+      />
+    </svg>
+  );
+}
+
+function replaceTokensWithValues(
+  text: string,
+  vaultEntries: VaultEntry[],
+  hiddenTokens: Set<string>
+): string {
   const sorted = [...vaultEntries].sort((a, b) => b.token.length - a.token.length);
-  return sorted.reduce((acc, entry) => acc.split(entry.token).join(entry.originalValue), text);
+  return sorted.reduce((acc, entry) => {
+    const val = maskDisplayValue(entry, !hiddenTokens.has(entry.token));
+    return acc.split(entry.token).join(val);
+  }, text);
 }
 
 export const App: React.FC = () => {
-  const initialParams = useMemo(() => {
+  const urlInit = useMemo(() => {
     if (typeof window === "undefined") {
       return {
-        tab: "studio" as WorkspaceTab,
-        theme: "light" as ThemeMode,
-        rehydrate: true,
+        nav: "document" as SidebarNav,
+        left: "document" as LeftDocTab,
+        right: "insights" as RightPanelTab,
         presetIdx: 0,
         leak: false,
-        edit: false
+        rehydrate: true
       };
     }
     const q = new URLSearchParams(window.location.search);
-    const rawView = q.get("view") || q.get("tab");
-    const tab: WorkspaceTab =
-      rawView === "vault" || rawView === "wire" || rawView === "matrix"
-        ? "vault"
-        : rawView === "apps" || rawView === "clients"
-        ? "apps"
-        : "studio";
-    const theme: ThemeMode = q.get("theme") === "dark" ? "dark" : "light";
-    const rehydrate = q.get("lens") !== "wire";
+    const rawNav = q.get("nav") || q.get("tab") || q.get("view");
+    const nav: SidebarNav =
+      rawNav === "home"
+        ? "home"
+        : rawNav === "history" || rawNav === "vault"
+        ? "history"
+        : rawNav === "settings"
+        ? "settings"
+        : rawNav === "help" || rawNav === "apps"
+        ? "help"
+        : "document";
+
+    const rawLeft = q.get("left");
+    const left: LeftDocTab =
+      rawLeft === "redacted" || rawLeft === "wire"
+        ? "redacted"
+        : rawLeft === "audit"
+        ? "audit"
+        : "document";
+
+    const rawRight = q.get("right");
+    const right: RightPanelTab = rawRight === "qa" ? "qa" : "insights";
+
     const presetIdx = Math.min(
       CLINICAL_LEGAL_PRESETS.length - 1,
       Math.max(0, Number(q.get("preset") || 0))
     );
     const leak = q.get("leak") === "1";
-    const edit = q.get("edit") === "1";
-    return { tab, theme, rehydrate, presetIdx, leak, edit };
+    const rehydrate = q.get("lens") !== "tokens";
+    return { nav, left, right, presetIdx, leak, rehydrate };
   }, []);
 
-  const initialPreset = CLINICAL_LEGAL_PRESETS[initialParams.presetIdx] ?? CLINICAL_LEGAL_PRESETS[0];
+  const initialPreset = CLINICAL_LEGAL_PRESETS[urlInit.presetIdx] ?? CLINICAL_LEGAL_PRESETS[0];
 
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>(initialParams.tab);
-  const [theme, setTheme] = useState<ThemeMode>(initialParams.theme);
-  const [selectedPresetId, setSelectedPresetId] = useState<string>(initialPreset.id);
+  const [sidebarNav, setSidebarNav] = useState<SidebarNav>(urlInit.nav);
+  const [leftTab, setLeftTab] = useState<LeftDocTab>(urlInit.left);
+  const [rightTab, setRightTab] = useState<RightPanelTab>(urlInit.right);
+  const [openPresetIds, setOpenPresetIds] = useState<string[]>(() => {
+    const base = ["preset-clinical-oncology-18", "preset-legal-ma-settlement"];
+    if (!base.includes(initialPreset.id)) base.push(initialPreset.id);
+    return base;
+  });
+  const [selectedDocId, setSelectedDocId] = useState<string>(initialPreset.id);
+  const [customDocMeta, setCustomDocMeta] = useState<DocTabMeta | null>(null);
+
   const [rawText, setRawText] = useState<string>(initialPreset.rawDocument);
   const [customTermsInput, setCustomTermsInput] = useState<string>(
     initialPreset.defaultCustomTerms.join(", ")
   );
-  const [isEditingSource, setIsEditingSource] = useState<boolean>(initialParams.edit);
+  const [peekEnabled, setPeekEnabled] = useState<boolean>(true);
+  const [activePeekOccurrenceKey, setActivePeekOccurrenceKey] = useState<string>("first");
+  const [hiddenVaultTokens, setHiddenVaultTokens] = useState<Set<string>>(() => new Set());
+  const [rehydrateRight, setRehydrateRight] = useState<boolean>(urlInit.rehydrate);
+
   const [stage1Mode, setStage1Mode] = useState<InferenceMode>(InferenceMode.ONLY_ON_DEVICE);
   const [cloudModelName, setCloudModelName] = useState<string>("gemini-2.5-flash");
   const [firebaseConfig, setFirebaseConfig] = useState<FirebaseWebConfig>(DEFAULT_DEMO_FIREBASE_CONFIG);
   const [configJsonText, setConfigJsonText] = useState<string>(
     JSON.stringify(DEFAULT_DEMO_FIREBASE_CONFIG, null, 2)
   );
-  const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
-  const [rehydrateView, setRehydrateView] = useState<boolean>(initialParams.rehydrate);
-  const [revealVaultValues, setRevealVaultValues] = useState<boolean>(true);
-  const [foldPosture, setFoldPosture] = useState<"unfolded" | "cover">("unfolded");
   const [sdkLang, setSdkLang] = useState<"ts" | "kotlin">("ts");
+  const [foldPosture, setFoldPosture] = useState<"unfolded" | "cover">("unfolded");
+
   const [pipelineResult, setPipelineResult] = useState<HybridPipelineExecutionResult | null>(null);
   const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [qaThread, setQaThread] = useState<QaConversationItem[]>([]);
+  const [questionDraft, setQuestionDraft] = useState<string>("");
+  const [isAskingQa, setIsAskingQa] = useState<boolean>(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const [uploadModalOpen, setUploadModalOpen] = useState<boolean>(false);
+  const [pasteDraftTitle, setPasteDraftTitle] = useState<string>("Client Document.pdf");
+  const [pasteDraftBody, setPasteDraftBody] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const [simulatedLeakAlert, setSimulatedLeakAlert] = useState<{
     title: string;
     detail: string;
   } | null>(null);
 
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+  const [auditHistory, setAuditHistory] = useState<AuditHistoryEntry[]>([
+    {
+      id: "hist-1",
+      fileName: "Medical Record.pdf",
+      ext: "pdf",
+      presetId: "preset-clinical-oncology-18",
+      maskedCount: 23,
+      sha256Short: "8F4C21E90A",
+      whenLabel: "2m ago"
+    },
+    {
+      id: "hist-2",
+      fileName: "NDA Contract.docx",
+      ext: "docx",
+      presetId: "preset-legal-ma-settlement",
+      maskedCount: 21,
+      sha256Short: "3D91B7C442",
+      whenLabel: "12m ago"
+    },
+    {
+      id: "hist-3",
+      fileName: "ER Psych Triage.pdf",
+      ext: "pdf",
+      presetId: "preset-psych-42cfr",
+      maskedCount: 19,
+      sha256Short: "7A10E5D318",
+      whenLabel: "38m ago"
+    },
+    {
+      id: "hist-4",
+      fileName: "FDA MedWatch.pdf",
+      ext: "pdf",
+      presetId: "preset-fda-medwatch-udi",
+      maskedCount: 19,
+      sha256Short: "C48290FA11",
+      whenLabel: "1h ago"
+    }
+  ]);
+
+  const currentDocMeta: DocTabMeta = useMemo(() => {
+    if (selectedDocId === "custom-doc" && customDocMeta) return customDocMeta;
+    return PRESET_DOC_META[selectedDocId] ?? PRESET_DOC_META["preset-clinical-oncology-18"];
+  }, [selectedDocId, customDocMeta]);
+
+  const buildDefaultQaTurn = useCallback(
+    (res: HybridPipelineExecutionResult, docId: string): QaConversationItem => {
+      const meta =
+        docId === "custom-doc" && customDocMeta
+          ? customDocMeta
+          : PRESET_DOC_META[docId] ?? PRESET_DOC_META["preset-clinical-oncology-18"];
+      const vault = res.scrubResult.vaultEntries;
+      const sections: QaAnswerSection[] = res.analysis.pharmacovigilanceOrClauseAlerts.map(
+        (alert) => ({
+          heading: replaceTokensWithValues(alert.title, vault, new Set()),
+          cloudBody: `${alert.mechanismOrClause} Recommended action: ${alert.recommendation}`,
+          restoredBody: replaceTokensWithValues(
+            `${alert.mechanismOrClause} Recommended action: ${alert.recommendation}`,
+            vault,
+            new Set()
+          )
+        })
+      );
+      sections.push({
+        heading: meta.isLegal ? "Other Key Points & Privilege Scope" : "Clinical Coding & Safe Summary",
+        cloudBody: res.analysis.executiveSummary,
+        restoredBody: replaceTokensWithValues(res.analysis.executiveSummary, vault, new Set())
+      });
+
+      return {
+        id: "qa-seed-" + docId,
+        question: meta.defaultQuestion,
+        sanitizedQuestion: meta.defaultQuestion,
+        timestamp: "10:24 AM",
+        intro: meta.isLegal
+          ? "I've reviewed the anonymized agreement and here's the clause-by-clause analysis:"
+          : "I've reviewed the anonymized clinical record and here's the safety breakdown:",
+        sections
+      };
+    },
+    [customDocMeta]
+  );
 
   const executeAirlock = useCallback(
     async (
@@ -262,6 +500,7 @@ export const App: React.FC = () => {
       mode: InferenceMode,
       cfg: FirebaseWebConfig,
       modelName: string,
+      docId: string,
       triggerDemoLeak = false
     ) => {
       setIsRunning(true);
@@ -279,6 +518,27 @@ export const App: React.FC = () => {
           cloudModelName: modelName
         });
         setPipelineResult(result);
+        setActivePeekOccurrenceKey("first");
+
+        // Pre- mask SSN display in vault/document only if user toggles; default SSN shows ***-**-XXXX in pill badge while tooltip shows exact cloud token
+        setQaThread([buildDefaultQaTurn(result, docId)]);
+
+        const meta = PRESET_DOC_META[docId];
+        if (meta) {
+          setAuditHistory((prev) => {
+            const updated: AuditHistoryEntry = {
+              id: "hist-" + Date.now(),
+              fileName: meta.fileName,
+              ext: meta.ext,
+              presetId: docId,
+              maskedCount: result.scrubResult.telemetry.totalDetected,
+              sha256Short: result.scrubResult.sanitizedSha256.slice(0, 10).toUpperCase(),
+              whenLabel: "Just now"
+            };
+            const filtered = prev.filter((item) => item.presetId !== docId);
+            return [updated, ...filtered].slice(0, 6);
+          });
+        }
 
         if (triggerDemoLeak) {
           const tampered = result.scrubResult.sanitizedText + "\nSSN: 419-82-6741";
@@ -289,10 +549,10 @@ export const App: React.FC = () => {
           );
           if (!check.passed) {
             setSimulatedLeakAlert({
-              title: "Outbound network request blocked before leaving this device",
-              detail: `Test injected an unredacted SSN (419-82-6741) after scrubbing. Pre-send leak verification caught ${check.leakedTokens.join(
+              title: "Outbound Cloud Request Blocked Before Leaving Device",
+              detail: `Pre-send gatekeeper caught unredacted SSN (419-82-6741 -> ${check.leakedTokens.join(
                 ", "
-              )} (${check.cloudPiiBytes} bytes) and canceled the cloud call.`
+              )}) and aborted transmission (0 bytes sent to cloud).`
             });
           }
         }
@@ -308,13 +568,13 @@ export const App: React.FC = () => {
             })
           });
         } catch {
-          // Local verification already succeeded
+          // Verified locally in browser RAM
         }
       } finally {
         setIsRunning(false);
       }
     },
-    []
+    [buildDefaultQaTurn]
   );
 
   useEffect(() => {
@@ -324,19 +584,41 @@ export const App: React.FC = () => {
       stage1Mode,
       firebaseConfig,
       cloudModelName,
-      initialParams.leak
+      selectedDocId,
+      urlInit.leak
     );
   }, []);
 
-  const handlePresetChange = (presetId: string) => {
+  const handleSelectPresetDoc = (presetId: string) => {
     const found = CLINICAL_LEGAL_PRESETS.find((p) => p.id === presetId);
     if (!found) return;
-    setSelectedPresetId(found.id);
+    if (!openPresetIds.includes(presetId)) {
+      setOpenPresetIds((prev) => [...prev, presetId]);
+    }
+    setSelectedDocId(presetId);
+    setSidebarNav("document");
     setRawText(found.rawDocument);
     const csv = found.defaultCustomTerms.join(", ");
     setCustomTermsInput(csv);
-    setIsEditingSource(false);
-    void executeAirlock(found.rawDocument, csv, stage1Mode, firebaseConfig, cloudModelName);
+    setHiddenVaultTokens(new Set());
+    void executeAirlock(
+      found.rawDocument,
+      csv,
+      stage1Mode,
+      firebaseConfig,
+      cloudModelName,
+      presetId
+    );
+  };
+
+  const handleCloseDocTab = (e: React.MouseEvent, tabId: string) => {
+    e.stopPropagation();
+    const remaining = openPresetIds.filter((id) => id !== tabId);
+    if (remaining.length === 0) return;
+    setOpenPresetIds(remaining);
+    if (selectedDocId === tabId) {
+      handleSelectPresetDoc(remaining[0]);
+    }
   };
 
   const handleSimulateLeakAttempt = () => {
@@ -349,815 +631,1635 @@ export const App: React.FC = () => {
     );
     if (!check.passed) {
       setSimulatedLeakAlert({
-        title: "Outbound network request blocked before leaving this device",
-        detail: `Simulated leak test appended raw SSN "419-82-6741" to the outgoing prompt. The pre-send check caught ${check.leakedTokens.join(
+        title: "Outbound Cloud Request Blocked Before Leaving Device",
+        detail: `Simulated leak test appended raw SSN "419-82-6741" to outgoing payload. Stage 2 gatekeeper caught ${check.leakedTokens.join(
           ", "
-        )} and aborted network transmission (0 bytes sent).`
+        )} (${check.cloudPiiBytes} bytes) and canceled network I/O.`
       });
     }
   };
 
-  const handleApplyFirebaseConfig = () => {
+  const handleAskQuestion = async (questionText: string) => {
+    const trimmed = questionText.trim();
+    if (!trimmed || !pipelineResult || isAskingQa) return;
+    setRightTab("qa");
+    setQuestionDraft("");
+    setIsAskingQa(true);
+    try {
+      const qaRes = await askHybridDocumentQuestion({
+        sanitizedDocumentText: pipelineResult.scrubResult.sanitizedText,
+        rawQuestion: trimmed,
+        vaultEntries: pipelineResult.scrubResult.vaultEntries,
+        firebaseConfig,
+        cloudModelName
+      });
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      setQaThread((prev) => [
+        ...prev,
+        {
+          id: "qa-" + Date.now(),
+          question: trimmed,
+          sanitizedQuestion: qaRes.sanitizedQuestion,
+          timestamp: timeStr,
+          intro: qaRes.intro,
+          sections: qaRes.sections
+        }
+      ]);
+    } catch (err) {
+      setSimulatedLeakAlert({
+        title: "Question Blocked by Zero-PII Gatekeeper",
+        detail: err instanceof Error ? err.message : "Unable to verify zero-PII question."
+      });
+    } finally {
+      setIsAskingQa(false);
+    }
+  };
+
+  const handleExportRedacted = () => {
+    if (!pipelineResult) return;
+    const content = [
+      `PII-ZERO VERIFIED REDACTED EXPORT (${currentDocMeta.fileName})`,
+      `SHA-256 Receipt: ${pipelineResult.scrubResult.sanitizedSha256}`,
+      `Cloud PII Bytes Exposed: 0`,
+      `------------------------------------------------------------`,
+      "",
+      pipelineResult.scrubResult.sanitizedText
+    ].join("\n");
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = currentDocMeta.fileName.replace(/\.(pdf|docx)$/i, "") + "-REDACTED.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopySummary = (turn: QaConversationItem) => {
+    const vault = pipelineResult?.scrubResult.vaultEntries ?? [];
+    const text = [
+      `Q: ${turn.question}`,
+      turn.intro,
+      ...turn.sections.map(
+        (s) =>
+          `• ${s.heading}: ${
+            rehydrateRight
+              ? replaceTokensWithValues(s.cloudBody, vault, hiddenVaultTokens)
+              : s.cloudBody
+          }`
+      )
+    ].join("\n\n");
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(text);
+    }
+    setCopiedId(turn.id);
+    setTimeout(() => setCopiedId(null), 1800);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = String(reader.result || "");
+      setPasteDraftTitle(file.name);
+      setPasteDraftBody(content);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleLoadCustomDocument = () => {
+    if (!pasteDraftBody.trim()) return;
+    const cleanName = pasteDraftTitle.trim() || "Confidential_Note.pdf";
+    const isDocx = cleanName.toLowerCase().endsWith(".docx");
+    const meta: DocTabMeta = {
+      id: "custom-doc",
+      fileName: cleanName,
+      ext: isDocx ? "docx" : "pdf",
+      instTitle: cleanName.replace(/\.(pdf|docx|txt|md)$/i, ""),
+      instSub: "Loaded in Local Browser RAM · Zero-Trust Hybrid Airlock Active",
+      reportTitle: "Confidential Document Review",
+      isLegal: isDocx || /agreement|contract|clause|escrow|nda/i.test(pasteDraftBody),
+      defaultQuestion: "What are the highest-priority risks and recommended next steps?",
+      quickChips: ["Summarize key risks", "What are the key findings?", "Any compliance concerns?"],
+      kpi1Label: "Protected Scope",
+      kpi1Main: "Local RAM",
+      kpi2Label: "Cloud Payload",
+      kpi2Main: "0 Raw PII",
+      kpi2Sub: "SHA-256 Gate Verified",
+      kpi3Label: "Hybrid Engine",
+      kpi3Main: "Gemini 2.5",
+      kpi3Sub: "Restored On-Device"
+    };
+    setCustomDocMeta(meta);
+    if (!openPresetIds.includes("custom-doc")) {
+      setOpenPresetIds((prev) => [...prev, "custom-doc"]);
+    }
+    setSelectedDocId("custom-doc");
+    setRawText(pasteDraftBody);
+    setUploadModalOpen(false);
+    setSidebarNav("document");
+    void executeAirlock(
+      pasteDraftBody,
+      customTermsInput,
+      stage1Mode,
+      firebaseConfig,
+      cloudModelName,
+      "custom-doc"
+    );
+  };
+
+  const handleSaveFirebaseSettings = () => {
     try {
       const parsed = JSON.parse(configJsonText) as FirebaseWebConfig;
       setFirebaseConfig(parsed);
-      setSettingsOpen(false);
-      void executeAirlock(rawText, customTermsInput, stage1Mode, parsed, cloudModelName);
+      void executeAirlock(
+        rawText,
+        customTermsInput,
+        stage1Mode,
+        parsed,
+        cloudModelName,
+        selectedDocId
+      );
+      setSidebarNav("document");
     } catch {
       setSimulatedLeakAlert({
-        title: "Invalid Firebase JSON format",
-        detail: "Check that your pasted Firebase web configuration is valid JSON."
+        title: "Invalid Firebase Configuration JSON",
+        detail: "Please ensure your Firebase Web SDK JSON object is valid before saving."
       });
     }
   };
 
-  const telemetry = pipelineResult?.scrubResult.telemetry;
+  const toggleVaultTokenVisibility = (token: string) => {
+    setHiddenVaultTokens((prev) => {
+      const next = new Set(prev);
+      if (next.has(token)) next.delete(token);
+      else next.add(token);
+      return next;
+    });
+  };
+
   const vaultEntries = pipelineResult?.scrubResult.vaultEntries ?? [];
+  const telemetry = pipelineResult?.scrubResult.telemetry;
   const analysis = pipelineResult?.analysis;
-  const liveCloud = isLiveFirebaseConfigured(firebaseConfig);
-  const totalDetected = telemetry?.totalDetected ?? 0;
-  const shortSha = (pipelineResult?.scrubResult.sanitizedSha256 ?? "").slice(0, 10);
+  const totalMasked = telemetry?.totalDetected ?? 0;
+  const shortSha = (pipelineResult?.scrubResult.sanitizedSha256 ?? "").slice(0, 12).toUpperCase();
+  const liveFirebase = isLiveFirebaseConfigured(firebaseConfig);
+
+  const primarySubjectName = useMemo(() => {
+    const person = vaultEntries.find((v) => v.category === "PATIENT_CLIENT_NAME");
+    if (!person) return "Protected Subject";
+    return maskDisplayValue(person, !hiddenVaultTokens.has(person.token));
+  }, [vaultEntries, hiddenVaultTokens]);
 
   const categoryCounts = useMemo(() => {
     const map = new Map<PiiCategoryId, number>();
-    for (const entry of vaultEntries) {
-      map.set(entry.category, (map.get(entry.category) ?? 0) + entry.occurrences);
+    for (const v of vaultEntries) {
+      map.set(v.category, (map.get(v.category) ?? 0) + v.occurrences);
     }
     return map;
   }, [vaultEntries]);
 
-  return (
-    <div className="app-shell">
-      {/* Clean Top Bar */}
-      <header className="topbar">
-        <div className="topbar-inner">
-          <div className="brand-cluster">
-            <span className="brand-logo" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1">
-                <path d="M12 3l7 4v5c0 4.5-3 8.5-7 9.5-4-1-7-5-7-9.5V7l7-4z" />
-                <path d="M9 12l2 2 4-4" />
-              </svg>
+  /**
+   * Renders raw text segment with interactive color-coded entity pills + dark floating Peek tooltip
+   */
+  const renderRawPillsInText = (
+    text: string,
+    linePrefix: string,
+    firstTracker: { assigned: boolean }
+  ): React.ReactNode => {
+    const values = vaultEntries
+      .map((v) => v.originalValue)
+      .filter((v) => v.length >= 3)
+      .sort((a, b) => b.length - a.length);
+    if (values.length === 0) return text;
+    const escaped = values.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const rx = new RegExp("(" + escaped.join("|") + ")", "g");
+    const lookup = new Map<string, VaultEntry>();
+    for (const entry of vaultEntries) {
+      if (!lookup.has(entry.originalValue)) lookup.set(entry.originalValue, entry);
+    }
+
+    return text.split(rx).map((part, idx) => {
+      const entry = lookup.get(part);
+      if (!entry) return <React.Fragment key={idx}>{part}</React.Fragment>;
+
+      let occKey = `${linePrefix}-${idx}-${entry.token}`;
+      if (!firstTracker.assigned && entry.category === "PATIENT_CLIENT_NAME") {
+        occKey = "first";
+        firstTracker.assigned = true;
+      }
+
+      const color = getCategoryColor(entry.category);
+      const isVisible = !hiddenVaultTokens.has(entry.token);
+      const shownText =
+        entry.category === "SSN" && isVisible
+          ? "***-**-" + entry.originalValue.slice(-4)
+          : maskDisplayValue(entry, isVisible);
+      const showTooltip = peekEnabled && activePeekOccurrenceKey === occKey;
+
+      return (
+        <span
+          key={idx}
+          className="entity-pill-anchor"
+          onMouseEnter={() => setActivePeekOccurrenceKey(occKey)}
+          onClick={() => setActivePeekOccurrenceKey(occKey)}
+        >
+          {showTooltip && (
+            <span className="peek-tooltip" role="status">
+              <span>
+                {entry.originalValue} → sent to cloud as <strong>{entry.token}</strong>
+              </span>
+              <span className="peek-tooltip-info">i</span>
             </span>
-            <div className="brand-title-wrap">
-              <span className="brand-name">PII-Zero</span>
-              <span className="brand-tagline">
-                Local privacy shield for medical charts &amp; legal contracts
+          )}
+          <span className={`entity-pill ${color}`}>
+            <PillMiniIcon category={entry.category} />
+            <span>{shownText}</span>
+            {entry.category === "SSN" && (
+              <span style={{ opacity: 0.72, fontSize: "11px" }} aria-hidden="true">
+                ⊘
+              </span>
+            )}
+          </span>
+        </span>
+      );
+    });
+  };
+
+  /**
+   * Renders [PII_*] placeholder pills inside Redacted Version or Cloud-Raw view
+   */
+  const renderTokenPillsInText = (text: string): React.ReactNode => {
+    if (!text) return null;
+    const byToken = new Map<string, VaultEntry>();
+    for (const v of vaultEntries) byToken.set(v.token, v);
+
+    return text.split(/(\[PII_[A-Z_]+_\d+\])/g).map((part, idx) => {
+      if (/^\[PII_[A-Z_]+_\d+\]$/.test(part)) {
+        const entry = byToken.get(part);
+        const color = entry ? getCategoryColor(entry.category) : "purple";
+        return (
+          <span
+            key={idx}
+            className={`entity-pill token-mono ${color}`}
+            title={
+              entry
+                ? `Local RAM value: "${maskDisplayValue(entry, !hiddenVaultTokens.has(entry.token))}" (${entry.label})`
+                : "Anonymized Cloud Token"
+            }
+          >
+            {part}
+          </span>
+        );
+      }
+      return <React.Fragment key={idx}>{part}</React.Fragment>;
+    });
+  };
+
+  /**
+   * Renders right-side AI analysis / Q&A prose with soft blue locally restored entity pills
+   */
+  const renderRestoredProse = (cloudSourceText: string): React.ReactNode => {
+    if (!cloudSourceText) return null;
+    if (!rehydrateRight) {
+      return renderTokenPillsInText(cloudSourceText);
+    }
+    const byToken = new Map<string, VaultEntry>();
+    for (const v of vaultEntries) byToken.set(v.token, v);
+
+    return cloudSourceText.split(/(\[PII_[A-Z_]+_\d+\])/g).map((part, idx) => {
+      if (/^\[PII_[A-Z_]+_\d+\]$/.test(part)) {
+        const entry = byToken.get(part);
+        if (!entry) return <React.Fragment key={idx}>{part}</React.Fragment>;
+        const shown = maskDisplayValue(entry, !hiddenVaultTokens.has(entry.token));
+        return (
+          <span
+            key={idx}
+            className="restored-pill"
+            title={`Restored locally in browser RAM from ${entry.token} — Cloud AI never saw "${entry.originalValue}"`}
+          >
+            {shown}
+          </span>
+        );
+      }
+      return <React.Fragment key={idx}>{part}</React.Fragment>;
+    });
+  };
+
+  /**
+   * Formats the active document as an authentic clinical chart or legal contract sheet
+   */
+  const renderStructuredSheet = (mode: "raw" | "redacted") => {
+    const source =
+      mode === "raw" ? rawText : pipelineResult?.scrubResult.sanitizedText ?? "";
+    const lines = source.split("\n").filter((l) => l.trim().length > 0);
+    const kvPairs: Array<{ label: string; val: string }> = [];
+    const proseLines: string[] = [];
+
+    lines.forEach((line, idx) => {
+      // Skip uppercase institutional banner line 0 since we render the rich header
+      if (idx === 0 && /^[A-Z0-9\s&—–\-():/]+$/.test(line.trim())) {
+        return;
+      }
+      if (line.includes("|") && line.includes(":")) {
+        const segments = line.split("|").map((s) => s.trim());
+        for (const seg of segments) {
+          const colonIdx = seg.indexOf(":");
+          if (colonIdx > 0 && colonIdx < 36) {
+            kvPairs.push({
+              label: seg.slice(0, colonIdx + 1).trim(),
+              val: seg.slice(colonIdx + 1).trim()
+            });
+          } else {
+            proseLines.push(seg);
+          }
+        }
+      } else if (/^[A-Za-z\s/&()-]{3,34}:\s+.+/.test(line) && !line.endsWith(":")) {
+        const colonIdx = line.indexOf(":");
+        kvPairs.push({
+          label: line.slice(0, colonIdx + 1).trim(),
+          val: line.slice(colonIdx + 1).trim()
+        });
+      } else {
+        proseLines.push(line);
+      }
+    });
+
+    const firstTracker = { assigned: false };
+
+    return (
+      <div className={mode === "redacted" ? "doc-paper compact" : "doc-paper"}>
+        <div className="doc-inst-header">
+          <div className="med-cross-icon" aria-hidden="true">
+            {currentDocMeta.isLegal ? (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <path d="M14 2v6h6M9 13h6M9 17h4" />
+              </svg>
+            ) : (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3z" />
+              </svg>
+            )}
+          </div>
+          <div>
+            <div className="doc-inst-name">{currentDocMeta.instTitle}</div>
+            <div className="doc-inst-sub">{currentDocMeta.instSub}</div>
+          </div>
+        </div>
+
+        <h2 className="doc-report-title">{currentDocMeta.reportTitle}</h2>
+
+        {kvPairs.length > 0 && (
+          <div className="doc-kv-grid">
+            {kvPairs.slice(0, mode === "redacted" ? 6 : 10).map((kv, i) => (
+              <React.Fragment key={i}>
+                <div className="doc-kv-label">{kv.label}</div>
+                <div>
+                  {mode === "raw"
+                    ? renderRawPillsInText(kv.val, `kv-${i}`, firstTracker)
+                    : renderTokenPillsInText(kv.val)}
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+        )}
+
+        <div className="doc-section-divider" />
+
+        {proseLines.map((pLine, pIdx) => {
+          const trimmed = pLine.trim();
+          if (trimmed.endsWith(":") && trimmed.length < 64) {
+            return (
+              <h3 key={pIdx} className="doc-section-heading">
+                {trimmed.replace(/:$/, "")}
+              </h3>
+            );
+          }
+          return (
+            <p key={pIdx} className="doc-paragraph">
+              {mode === "raw"
+                ? renderRawPillsInText(trimmed, `p-${pIdx}`, firstTracker)
+                : renderTokenPillsInText(trimmed)}
+            </p>
+          );
+        })}
+
+        {mode === "raw" && kvPairs.length > 10 && (
+          <>
+            <div className="doc-section-divider" />
+            <h3 className="doc-section-heading">Additional Protected Identifiers</h3>
+            <div className="doc-kv-grid" style={{ marginBottom: 0 }}>
+              {kvPairs.slice(10).map((kv, idx) => (
+                <React.Fragment key={idx}>
+                  <div className="doc-kv-label">{kv.label}</div>
+                  <div>{renderRawPillsInText(kv.val, `kv-more-${idx}`, firstTracker)}</div>
+                </React.Fragment>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {/* Atmospheric Mountain-Dawn SVG Backdrop */}
+      <div className="mountain-backdrop" aria-hidden="true">
+        <svg viewBox="0 0 1200 360" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="mtn1" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#b9cbe6" stopOpacity="0.62" />
+              <stop offset="100%" stopColor="#dbe6f6" stopOpacity="0.05" />
+            </linearGradient>
+            <linearGradient id="mtn2" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#9fb7db" stopOpacity="0.52" />
+              <stop offset="100%" stopColor="#cfdcf1" stopOpacity="0.08" />
+            </linearGradient>
+          </defs>
+          <path d="M180,360 L490,115 L760,250 L980,68 L1200,195 L1200,360 Z" fill="url(#mtn1)" />
+          <path d="M420,360 L720,148 L955,275 L1145,118 L1200,155 L1200,360 Z" fill="url(#mtn2)" />
+        </svg>
+      </div>
+
+      <div className="pz-app">
+        {/* Left Frosted Sidebar with Pine-Mountain Footer */}
+        <aside className="pz-sidebar" aria-label="Primary navigation">
+          <div className="sidebar-top">
+            <button
+              type="button"
+              className="brand-lockup"
+              onClick={() => setSidebarNav("document")}
+            >
+              <ShieldSparkleLogo />
+              <span className="brand-wordmark">PII-Zero</span>
+            </button>
+
+            <nav className="sidebar-nav">
+              <button
+                type="button"
+                className={"sidebar-link " + (sidebarNav === "home" ? "active" : "")}
+                onClick={() => setSidebarNav("home")}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5.5v-6h-5v6H4a1 1 0 0 1-1-1v-9.5z" />
+                </svg>
+                <span>Home</span>
+              </button>
+
+              <button
+                type="button"
+                className={"sidebar-link " + (sidebarNav === "document" ? "active" : "")}
+                onClick={() => setSidebarNav("document")}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 2v6h6M8 13h8M8 17h5" />
+                </svg>
+                <span>Document</span>
+              </button>
+
+              <button
+                type="button"
+                className={"sidebar-link " + (sidebarNav === "history" ? "active" : "")}
+                onClick={() => setSidebarNav("history")}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+                <span>History</span>
+              </button>
+
+              <button
+                type="button"
+                className={"sidebar-link " + (sidebarNav === "settings" ? "active" : "")}
+                onClick={() => setSidebarNav("settings")}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1z" />
+                </svg>
+                <span>Settings</span>
+              </button>
+
+              <button
+                type="button"
+                className={"sidebar-link " + (sidebarNav === "help" ? "active" : "")}
+                onClick={() => setSidebarNav("help")}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.6-2.5 2-2.5 3.8M12 17h.01" />
+                </svg>
+                <span>Help &amp; Apps</span>
+              </button>
+            </nav>
+          </div>
+
+          <svg className="sidebar-pine-art" viewBox="0 0 210 220" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M0,150 L68,95 L138,142 L210,104 L210,220 L0,220 Z" fill="#ceddf2" opacity="0.65" />
+            <path d="M0,175 L95,126 L175,168 L210,148 L210,220 L0,220 Z" fill="#b7cde9" opacity="0.72" />
+            <g fill="#7c9cc6" opacity="0.58">
+              <polygon points="22,118 8,148 36,148" />
+              <polygon points="22,134 5,168 39,168" />
+              <polygon points="22,152 2,190 42,190" />
+              <polygon points="50,136 39,160 61,160" />
+              <polygon points="50,150 36,180 64,180" />
+              <polygon points="75,148 66,168 84,168" />
+              <polygon points="75,160 63,186 87,186" />
+            </g>
+          </svg>
+
+          <div className="sidebar-bottom">
+            <div className="sidebar-motto">
+              Your Privacy.
+              <br />
+              Our Priority.
+            </div>
+          </div>
+        </aside>
+
+        {/* Main Content Canvas */}
+        <div className="pz-main">
+          {/* Top Document Bar + Status Badge */}
+          <header className="pz-topbar">
+            <div className="doc-tabs-row" role="tablist" aria-label="Open documents">
+              {openPresetIds.map((docId) => {
+                const meta =
+                  docId === "custom-doc" && customDocMeta
+                    ? customDocMeta
+                    : PRESET_DOC_META[docId];
+                if (!meta) return null;
+                const isActive = sidebarNav === "document" && selectedDocId === docId;
+                return (
+                  <button
+                    key={docId}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    className={"doc-file-pill " + (isActive ? "active" : "")}
+                    onClick={() => {
+                      if (docId === "custom-doc") {
+                        setSelectedDocId("custom-doc");
+                        setSidebarNav("document");
+                      } else {
+                        handleSelectPresetDoc(docId);
+                      }
+                    }}
+                  >
+                    <span className={`file-type-icon ${meta.ext}`}>
+                      {meta.ext === "docx" ? "W" : "PDF"}
+                    </span>
+                    <span>{meta.fileName}</span>
+                    {openPresetIds.length > 1 && (
+                      <span
+                        className="doc-pill-close"
+                        title="Close tab"
+                        onClick={(e) => handleCloseDocTab(e, docId)}
+                      >
+                        ×
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                className="upload-pill-btn"
+                onClick={() => setUploadModalOpen(true)}
+              >
+                <span style={{ fontSize: "16px", fontWeight: 500 }}>+</span>
+                <span>Upload / Paste</span>
+              </button>
+            </div>
+
+            <div className="scrubber-status-pill" title="Pre-send gatekeeper verified 0 raw PII bytes leave your device">
+              <span className="live-green-dot" />
+              <span>
+                On-Device Scrubber Active • <strong>0 PII Sent to Cloud</strong>
+              </span>
+              <span className="shield-verified-icon" aria-hidden="true">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6">
+                  <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
+                  <path d="M9 12l2 2 4-4" />
+                </svg>
+              </span>
+            </div>
+          </header>
+
+          {/* Centered Two-Stage Hybrid AI Pipeline Strip */}
+          <div className="hybrid-pipeline-row">
+            <div className="hybrid-pipeline-pill" aria-label="Hybrid AI execution summary">
+              <span className="pipeline-step">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2">
+                  <rect x="3" y="4" width="18" height="12" rx="2" />
+                  <path d="M2 20h20" />
+                </svg>
+                <span>
+                  On-Device AI: <strong>{isRunning ? "Scanning…" : `${totalMasked} PII Entities Masked Locally`}</strong>
+                </span>
+              </span>
+
+              <span className="pipeline-arrow" aria-hidden="true">
+                →
+              </span>
+
+              <span className="pipeline-step cloud">
+                <span className="pipeline-cloud-badge" aria-hidden="true">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18.4 10.2A6.5 6.5 0 0 0 6 8.8 5 5 0 0 0 6.5 18.8h11.4a4.3 4.3 0 0 0 .5-8.6z" />
+                  </svg>
+                </span>
+                <span>
+                  Cloud AI: <strong>Analyzed Safely ({liveFirebase ? "Live Firebase" : "Gemini 2.5 Flash"})</strong>
+                </span>
               </span>
             </div>
           </div>
 
-          <nav className="nav-tabs" aria-label="Primary sections">
-            <button
-              type="button"
-              className={"nav-tab " + (activeTab === "studio" ? "active" : "")}
-              onClick={() => setActiveTab("studio")}
-            >
-              <span>1-2-3 Document Studio</span>
-            </button>
-            <button
-              type="button"
-              className={"nav-tab " + (activeTab === "vault" ? "active" : "")}
-              onClick={() => setActiveTab("vault")}
-            >
-              <span>Local Vault &amp; 18 Rules</span>
-              <span className="tab-count">{vaultEntries.length}</span>
-            </button>
-            <button
-              type="button"
-              className={"nav-tab " + (activeTab === "apps" ? "active" : "")}
-              onClick={() => setActiveTab("apps")}
-            >
-              <span>Chrome &amp; Android Apps</span>
-            </button>
-          </nav>
-
-          <div className="topbar-right">
-            <div className="zero-pill" title="Pre-network check verified zero personal identifiers in cloud prompt">
-              <span className="zero-dot" />
-              <span>0 raw PII sent to cloud</span>
-            </div>
-
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => setSettingsOpen((v) => !v)}
-            >
-              {liveCloud ? "Firebase: Live" : "Settings"}
-            </button>
-
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-              aria-label="Toggle color theme"
-            >
-              {theme === "light" ? "Dark mode" : "Light mode"}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="page-body">
-        {/* Sample Selector & Primary Actions */}
-        <div className="control-strip">
-          <div className="preset-strip" role="group" aria-label="Sample documents">
-            <span className="strip-label">Example record:</span>
-            {CLINICAL_LEGAL_PRESETS.map((preset, idx) => {
-              const info = PRESET_SHORT_META[idx] ?? { label: preset.title.slice(0, 18), tag: "Sample" };
-              const isSelected = selectedPresetId === preset.id;
-              return (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className={"preset-pill " + (isSelected ? "active" : "")}
-                  onClick={() => handlePresetChange(preset.id)}
-                >
-                  <span>{info.label}</span>
-                  <span className="preset-tag">· {info.tag}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="action-group">
-            <button type="button" className="btn" onClick={handleSimulateLeakAttempt}>
-              Test Leak Blocker
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={isRunning}
-              onClick={() => {
-                setIsEditingSource(false);
-                void executeAirlock(rawText, customTermsInput, stage1Mode, firebaseConfig, cloudModelName);
-              }}
-            >
-              {isRunning ? "Analyzing…" : "Scrub & Analyze"}
-            </button>
-          </div>
-        </div>
-
-        {/* Leak Blocker Alert */}
-        {simulatedLeakAlert && (
-          <div className="leak-alert" role="alert">
-            <div>
-              <div className="leak-alert-title">{simulatedLeakAlert.title}</div>
-              <div className="leak-alert-desc">{simulatedLeakAlert.detail}</div>
-            </div>
-            <button type="button" className="btn btn-sm" onClick={() => setSimulatedLeakAlert(null)}>
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* Collapsible Firebase & Hybrid Mode Settings */}
-        {settingsOpen && (
-          <section className="settings-drawer" aria-label="Hybrid AI settings">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+          {/* Pre-Send Leak Blocker Alert Banner (when simulated or triggered) */}
+          {simulatedLeakAlert && (
+            <div className="leak-banner" role="alert">
               <div>
-                <div className="panel-title">Firebase AI Logic &amp; Local Scrubber Settings</div>
-                <div className="panel-desc">
-                  Choose how Stage 1 runs locally and optionally connect your own Firebase project for live Gemini 2.5 Flash calls.
+                <div className="leak-banner-title">{simulatedLeakAlert.title}</div>
+                <div className="leak-banner-desc">{simulatedLeakAlert.detail}</div>
+              </div>
+              <button
+                type="button"
+                className="btn-outline-pill"
+                onClick={() => setSimulatedLeakAlert(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {/* ==================== VIEW 1: ACTIVE DOCUMENT WORKSPACE ==================== */}
+          {sidebarNav === "document" && (
+            <main className="workspace-split">
+              {/* LEFT PANEL: Document / Redacted Version + Vault / Privacy Audit */}
+              <section className="glass-panel" aria-label="Document and local redaction proof">
+                <div className="card-tabbar">
+                  <div className="card-tabs" role="tablist">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={leftTab === "document"}
+                      className={"card-tab " + (leftTab === "document" ? "active" : "")}
+                      onClick={() => setLeftTab("document")}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <path d="M14 2v6h6M8 13h8M8 17h5" />
+                      </svg>
+                      <span>Document</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={leftTab === "redacted"}
+                      className={"card-tab " + (leftTab === "redacted" ? "active" : "")}
+                      onClick={() => setLeftTab("redacted")}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                      <span>Redacted Version</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={leftTab === "audit"}
+                      className={"card-tab " + (leftTab === "audit" ? "active" : "")}
+                      onClick={() => setLeftTab("audit")}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
+                        <path d="M9 12l2 2 4-4" />
+                      </svg>
+                      <span>Privacy Audit</span>
+                    </button>
+                  </div>
+
+                  <div className="tab-controls-right">
+                    <label className="peek-toggle-label">
+                      <span>Peek</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={peekEnabled}
+                        className={"ios-switch " + (peekEnabled ? "on" : "")}
+                        onClick={() => setPeekEnabled((v) => !v)}
+                      >
+                        <span className="ios-switch-knob" />
+                      </button>
+                    </label>
+                  </div>
+                </div>
+
+                {/* SUB-TAB A: Original Document with Inline Color-Coded Entity Pills + Tooltip */}
+                {leftTab === "document" && (
+                  <div className="doc-sheet-wrap">
+                    {renderStructuredSheet("raw")}
+                  </div>
+                )}
+
+                {/* SUB-TAB B: Redacted Version Sent to Cloud + Local Entity Vault */}
+                {leftTab === "redacted" && (
+                  <div className="doc-sheet-wrap">
+                    {renderStructuredSheet("redacted")}
+
+                    <div className="vault-subcard">
+                      <div className="vault-subcard-header">
+                        <div className="vault-subcard-title">
+                          <span className="vault-lock-badge" aria-hidden="true">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                              <rect x="4" y="11" width="16" height="10" rx="2" />
+                              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                            </svg>
+                          </span>
+                          <div>
+                            <div style={{ fontSize: "13.5px", fontWeight: 700, color: "var(--ink-900)" }}>
+                              Local Entity Vault ({vaultEntries.length})
+                            </div>
+                            <div style={{ fontSize: "11.5px", color: "var(--ink-500)" }}>
+                              Original values are stored in browser RAM only
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn-outline-pill"
+                          onClick={handleExportRedacted}
+                        >
+                          <span>↓ Export Redacted Doc</span>
+                        </button>
+                      </div>
+
+                      <div className="vault-table-scroll">
+                        <table className="vault-table">
+                          <thead>
+                            <tr>
+                              <th>Original Value</th>
+                              <th>Cloud Token</th>
+                              <th>Type</th>
+                              <th>Visibility</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {vaultEntries.map((entry) => {
+                              const isVis = !hiddenVaultTokens.has(entry.token);
+                              const color = getCategoryColor(entry.category);
+                              return (
+                                <tr key={entry.token}>
+                                  <td style={{ fontWeight: 500, color: "var(--ink-900)" }}>
+                                    {maskDisplayValue(entry, isVis)}
+                                  </td>
+                                  <td>
+                                    <span className={`entity-pill token-mono ${color}`}>
+                                      {entry.token}
+                                    </span>
+                                  </td>
+                                  <td style={{ color: "var(--ink-500)" }}>
+                                    {getCategoryShortType(entry.category)}
+                                  </td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      role="switch"
+                                      aria-checked={isVis}
+                                      aria-label={`Toggle visibility for ${entry.token}`}
+                                      className={"ios-switch " + (isVis ? "on" : "")}
+                                      onClick={() => toggleVaultTokenVisibility(entry.token)}
+                                    >
+                                      <span className="ios-switch-knob" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB-TAB C: Cryptographic Privacy Audit & Leak Blocker Proof */}
+                {leftTab === "audit" && (
+                  <div className="doc-sheet-wrap" style={{ overflowY: "auto" }}>
+                    <div className="doc-paper" style={{ maxHeight: "none" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
+                        <div>
+                          <h2 className="doc-report-title" style={{ marginBottom: "4px" }}>
+                            Zero-Trust Pre-Send Cryptographic Audit
+                          </h2>
+                          <p style={{ fontSize: "12.5px", color: "var(--ink-500)" }}>
+                            Receipt <span className="mono">#{shortSha}</span> · Verified before opening HTTPS socket
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-primary-pill"
+                          onClick={handleSimulateLeakAttempt}
+                        >
+                          Test Pre-Send Leak Blocker
+                        </button>
+                      </div>
+
+                      <div className="kpi-cards-grid" style={{ marginBottom: "16px" }}>
+                        <div className="kpi-insight-card">
+                          <span className="kpi-card-label">Stage 1 · On-Device</span>
+                          <span className="kpi-card-value">{totalMasked} Masked</span>
+                          <span className="kpi-card-sub">
+                            {stage1Mode === InferenceMode.ONLY_ON_DEVICE ? "ONLY_ON_DEVICE" : "PREFER_ON_DEVICE"}
+                          </span>
+                        </div>
+                        <div className="kpi-insight-card">
+                          <span className="kpi-card-label">Stage 2 · Gatekeeper</span>
+                          <span className="kpi-card-value" style={{ color: "#16a34a" }}>0 Bytes Leaked</span>
+                          <span className="kpi-card-sub">
+                            {telemetry?.sanitizedOutputBytes ?? 0} B safe payload
+                          </span>
+                        </div>
+                        <div className="kpi-insight-card">
+                          <span className="kpi-card-label">Stage 3 · Cloud AI</span>
+                          <span className="kpi-card-value">Gemini 2.5</span>
+                          <span className="kpi-card-sub">App Check Verified</span>
+                        </div>
+                      </div>
+
+                      <h3 className="doc-section-heading">18 HIPAA Safe Harbor &amp; Legal Privilege Rules</h3>
+                      <div style={{ maxHeight: "290px", overflowY: "auto", border: "1px solid #e5ecf6", borderRadius: "10px" }}>
+                        <table className="vault-table">
+                          <thead>
+                            <tr>
+                              <th>Category</th>
+                              <th>Token Format</th>
+                              <th>Detected</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.values(PII_CATEGORIES).map((cat) => {
+                              const count = categoryCounts.get(cat.id) ?? 0;
+                              return (
+                                <tr key={cat.id}>
+                                  <td>
+                                    <div style={{ fontWeight: 600 }}>{cat.label}</div>
+                                    <div style={{ fontSize: "11px", color: "var(--ink-400)" }}>{cat.regulationRef}</div>
+                                  </td>
+                                  <td>
+                                    <span className={`entity-pill token-mono ${getCategoryColor(cat.id)}`}>
+                                      [{cat.tokenPrefix}_01]
+                                    </span>
+                                  </td>
+                                  <td className="mono" style={{ fontWeight: count > 0 ? 700 : 400, color: count > 0 ? "#15803d" : "var(--ink-400)" }}>
+                                    {count > 0 ? `✓ ${count} masked` : "—"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="card-footer-strip">
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                    <span className="shield-verified-icon" aria-hidden="true">✓</span>
+                    <span>
+                      <strong>{totalMasked} PII entities</strong> were masked locally before sending to cloud
+                    </span>
+                  </span>
+
+                  <button
+                    type="button"
+                    className="footer-link-btn"
+                    onClick={() =>
+                      setLeftTab((prev) =>
+                        prev === "document" ? "redacted" : prev === "redacted" ? "audit" : "document"
+                      )
+                    }
+                  >
+                    <span>
+                      {leftTab === "document"
+                        ? "View Details ›"
+                        : leftTab === "redacted"
+                        ? "Privacy Audit ›"
+                        : "Back to Document ›"}
+                    </span>
+                  </button>
+                </div>
+              </section>
+
+              {/* RIGHT PANEL: AI Insights + Interactive Q&A Assistant */}
+              <section className="glass-panel" aria-label="AI insights and document Q&A">
+                <div className="card-tabbar">
+                  <div className="card-tabs" role="tablist">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={rightTab === "insights"}
+                      className={"card-tab " + (rightTab === "insights" ? "active" : "")}
+                      onClick={() => setRightTab("insights")}
+                    >
+                      <span style={{ color: "#2563eb" }}>✦</span>
+                      <span>AI Insights</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={rightTab === "qa"}
+                      className={"card-tab " + (rightTab === "qa" ? "active" : "")}
+                      onClick={() => setRightTab("qa")}
+                    >
+                      <span style={{ color: "#7c3aed" }}>✦</span>
+                      <span>Q&amp;A Assistant</span>
+                    </button>
+                  </div>
+
+                  <div className="tab-controls-right">
+                    <button
+                      type="button"
+                      className="btn-outline-pill"
+                      style={{ height: "28px", fontSize: "11.5px", padding: "0 11px" }}
+                      onClick={() => setRehydrateRight((v) => !v)}
+                      title="Toggle between locally restored names and raw [PII_*] tokens returned by Cloud AI"
+                    >
+                      {rehydrateRight ? "Showing: Restored Names" : "Showing: Cloud [PII_*]"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="right-panel-body">
+                  {/* RIGHT MODE 1: AI INSIGHTS */}
+                  {rightTab === "insights" && (
+                    <div className="insights-stack">
+                      <div className="section-heading-row">
+                        <h2 className="section-h3">Analysis Summary</h2>
+                      </div>
+
+                      <div className="summary-prose">
+                        {renderRestoredProse(analysis?.executiveSummary ?? "")}
+                      </div>
+
+                      <div className="section-heading-row" style={{ marginTop: "4px" }}>
+                        <h3 className="section-h3">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.4">
+                            <path d="M4 20V14M10 20V10M16 20V4M22 20v-8" />
+                          </svg>
+                          <span>Key Insights</span>
+                        </h3>
+                      </div>
+
+                      <div className="kpi-cards-grid">
+                        <div className="kpi-insight-card">
+                          <span className="kpi-icon-circle blue" aria-hidden="true">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7V4z" />
+                            </svg>
+                          </span>
+                          <span className="kpi-card-label">{currentDocMeta.kpi1Label}</span>
+                          <span className="kpi-card-value">{currentDocMeta.kpi1Main}</span>
+                          <span className="kpi-card-sub">{primarySubjectName}</span>
+                        </div>
+
+                        <div className="kpi-insight-card">
+                          <span className="kpi-icon-circle green" aria-hidden="true">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3">
+                              <rect x="3" y="5" width="18" height="16" rx="2.5" />
+                              <path d="M16 3v4M8 3v4M3 10h18" />
+                            </svg>
+                          </span>
+                          <span className="kpi-card-label">{currentDocMeta.kpi2Label}</span>
+                          <span className="kpi-card-value">{currentDocMeta.kpi2Main}</span>
+                          <span className="kpi-card-sub">{currentDocMeta.kpi2Sub}</span>
+                        </div>
+
+                        <div className="kpi-insight-card">
+                          <span className="kpi-icon-circle purple" aria-hidden="true">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3">
+                              <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
+                              <path d="M12 8v4M12 16h.01" />
+                            </svg>
+                          </span>
+                          <span className="kpi-card-label">{currentDocMeta.kpi3Label}</span>
+                          <span className="kpi-card-value">{currentDocMeta.kpi3Main}</span>
+                          <span className="kpi-card-sub">{currentDocMeta.kpi3Sub}</span>
+                        </div>
+                      </div>
+
+                      <div className="restored-banner">
+                        <span className="check-circle-green" aria-hidden="true">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                            <path d="M5 13l4 4L19 7" />
+                          </svg>
+                        </span>
+                        <span>Your private information has been restored locally.</span>
+                      </div>
+
+                      <div className="section-heading-row" style={{ marginTop: "2px" }}>
+                        <h3 className="section-h3">
+                          <span style={{ color: "#2563eb" }}>✦</span>
+                          <span>Recommended Next Steps</span>
+                        </h3>
+                      </div>
+
+                      <div className="next-steps-list">
+                        {analysis?.pharmacovigilanceOrClauseAlerts.map((alert, idx) => (
+                          <div key={idx} className="next-step-row">
+                            <span className="check-circle-green" aria-hidden="true">
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2">
+                                <path d="M5 13l4 4L19 7" />
+                              </svg>
+                            </span>
+                            <div>
+                              <strong style={{ color: "var(--ink-900)" }}>{alert.title}: </strong>
+                              {renderRestoredProse(alert.recommendation)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* RIGHT MODE 2: INTERACTIVE Q&A ASSISTANT */}
+                  {rightTab === "qa" && (
+                    <div className="qa-thread" aria-live="polite">
+                      {qaThread.map((turn) => (
+                        <React.Fragment key={turn.id}>
+                          <div className="qa-user-row">
+                            <span className="qa-user-avatar" aria-hidden="true">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2.2c-3.8 0-7.5 1.9-7.5 4.6V21h15v-2.2c0-2.7-3.7-4.6-7.5-4.6z" />
+                              </svg>
+                            </span>
+                            <div className="qa-user-bubble">{turn.question}</div>
+                            <span className="qa-timestamp">{turn.timestamp}</span>
+                          </div>
+
+                          <div className="qa-ai-row">
+                            <span className="qa-ai-avatar" aria-hidden="true">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2L20 5.5v6c0 5-3.4 9.3-8 10.6-4.6-1.3-8-5.6-8-10.6v-6L12 2zm0 5l1.4 3.2 3.2 1.4-3.2 1.4L12 16.2 10.6 13l-3.2-1.4 3.2-1.4L12 7z" />
+                              </svg>
+                            </span>
+
+                            <div className="qa-ai-card">
+                              <div className="qa-ai-intro">{turn.intro}</div>
+
+                              {turn.sections.map((sec, sIdx) => (
+                                <div key={sIdx} className="qa-clause-block">
+                                  <div className="qa-clause-title">{sec.heading}</div>
+                                  <div className="qa-clause-body">
+                                    {renderRestoredProse(sec.cloudBody)}
+                                  </div>
+                                </div>
+                              ))}
+
+                              <div className="qa-card-footer">
+                                <button
+                                  type="button"
+                                  className="btn-outline-pill"
+                                  onClick={() => handleCopySummary(turn)}
+                                >
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                  </svg>
+                                  <span>
+                                    {copiedId === turn.id ? "Copied Summary" : "Copy Safe Summary"}
+                                  </span>
+                                </button>
+                                <span className="qa-timestamp">0 PII sent · {turn.timestamp}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </React.Fragment>
+                      ))}
+                      {isAskingQa && (
+                        <div style={{ fontSize: "12.5px", color: "var(--ink-500)", paddingLeft: "42px" }}>
+                          Masking question locally &amp; analyzing anonymized context…
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Pinned Ask Anything Input Bar + Prompt Chips */}
+                  <div className="ask-dock">
+                    <form
+                      className="ask-input-shell"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void handleAskQuestion(questionDraft);
+                      }}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2">
+                        <path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5z" />
+                      </svg>
+                      <input
+                        type="text"
+                        className="ask-input"
+                        placeholder="Ask anything about this document..."
+                        value={questionDraft}
+                        onChange={(e) => setQuestionDraft(e.target.value)}
+                      />
+                      <button
+                        type="submit"
+                        className="ask-send-btn"
+                        aria-label="Send question"
+                        disabled={isAskingQa}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                        </svg>
+                      </button>
+                    </form>
+
+                    <div className="prompt-chips-row">
+                      {currentDocMeta.quickChips.map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          className="prompt-chip"
+                          onClick={() => void handleAskQuestion(chip)}
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </main>
+          )}
+
+          {/* ==================== VIEW 2: HOME DASHBOARD ==================== */}
+          {sidebarNav === "home" && (
+            <main className="home-dashboard" aria-label="PII-Zero Home Overview">
+              <section className="home-hero-card">
+                <div className="home-hero-left">
+                  <span className="home-big-check" aria-hidden="true">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                  </span>
+                  <div>
+                    <h1 style={{ fontFamily: "var(--font-display)", fontSize: "21px", fontWeight: 800, marginBottom: "4px" }}>
+                      Your data is protected
+                    </h1>
+                    <p style={{ fontSize: "14px", color: "var(--ink-700)", marginBottom: "10px" }}>
+                      Personal, medical, and legal identifiers are masked locally on your device with Gemini Nano + our 18-category HIPAA enclave before Cloud AI ever sees a word.
+                    </p>
+                    <button
+                      type="button"
+                      className="footer-link-btn"
+                      onClick={() => setSidebarNav("document")}
+                    >
+                      <span>Open active document workspace →</span>
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section className="home-activity-card">
+                <div className="section-heading-row" style={{ marginBottom: "10px" }}>
+                  <h2 className="section-h3">Recent Activity &amp; Sample Documents</h2>
+                  <span style={{ fontSize: "12.5px", color: "var(--ink-500)" }}>Click any document to inspect</span>
+                </div>
+
+                <div>
+                  {CLINICAL_LEGAL_PRESETS.map((preset) => {
+                    const meta = PRESET_DOC_META[preset.id];
+                    return (
+                      <div
+                        key={preset.id}
+                        className="activity-row"
+                        onClick={() => handleSelectPresetDoc(preset.id)}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <span className={`file-type-icon ${meta.ext}`}>
+                            {meta.ext === "docx" ? "W" : "PDF"}
+                          </span>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: "13.5px" }}>{meta.fileName}</div>
+                            <div style={{ fontSize: "12px", color: "var(--ink-500)" }}>
+                              Analyzed • 0 PII exposed • {preset.badge}
+                            </div>
+                          </div>
+                        </div>
+                        <span className="btn-outline-pill">Open →</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <div>
+                <h2 className="section-h3" style={{ marginBottom: "10px" }}>Quick Actions</h2>
+                <div className="quick-actions-grid">
+                  <button
+                    type="button"
+                    className="quick-action-btn"
+                    onClick={() => setUploadModalOpen(true)}
+                  >
+                    <span className="kpi-icon-circle blue" aria-hidden="true">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3">
+                        <path d="M12 16V4M7 9l5-5 5 5M4 20h16" />
+                      </svg>
+                    </span>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>Upload / Paste Document</div>
+                      <div style={{ fontSize: "12px", color: "var(--ink-500)" }}>Analyze your own confidential note</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="quick-action-btn"
+                    onClick={() => {
+                      setSidebarNav("document");
+                      setRightTab("qa");
+                    }}
+                  >
+                    <span className="kpi-icon-circle purple" aria-hidden="true">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                        <path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5z" />
+                      </svg>
+                    </span>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>Ask a Question (AI Assistant)</div>
+                      <div style={{ fontSize: "12px", color: "var(--ink-500)" }}>Zero-PII clause &amp; clinical Q&amp;A</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="quick-action-btn"
+                    onClick={() => {
+                      setSidebarNav("document");
+                      setLeftTab("audit");
+                      handleSimulateLeakAttempt();
+                    }}
+                  >
+                    <span className="kpi-icon-circle green" aria-hidden="true">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                        <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
+                        <path d="M9 12l2 2 4-4" />
+                      </svg>
+                    </span>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>Test Pre-Send Leak Blocker</div>
+                      <div style={{ fontSize: "12px", color: "var(--ink-500)" }}>Verify raw SSNs are hard-blocked</div>
+                    </div>
+                  </button>
                 </div>
               </div>
-              <button type="button" className="btn btn-sm" onClick={() => setSettingsOpen(false)}>
+            </main>
+          )}
+
+          {/* ==================== VIEW 3: HISTORY & ZERO-PII RECEIPTS ==================== */}
+          {sidebarNav === "history" && (
+            <section className="home-activity-card" aria-label="Zero-PII session audit history">
+              <div className="section-heading-row" style={{ marginBottom: "12px" }}>
+                <div>
+                  <h2 className="section-h3">Session Zero-PII Audit Receipts</h2>
+                  <p style={{ fontSize: "12.5px", color: "var(--ink-500)", marginTop: "2px" }}>
+                    Cryptographic SHA-256 verification log for documents analyzed in this browser tab (0 raw PII bytes transmitted).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-outline-pill"
+                  onClick={() => setSidebarNav("document")}
+                >
+                  Back to Workspace
+                </button>
+              </div>
+
+              <table className="vault-table">
+                <thead>
+                  <tr>
+                    <th>Document</th>
+                    <th>Masked Locally</th>
+                    <th>Cloud PII Bytes</th>
+                    <th>SHA-256 Receipt</th>
+                    <th>Time</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditHistory.map((item) => (
+                    <tr key={item.id}>
+                      <td style={{ fontWeight: 600 }}>{item.fileName}</td>
+                      <td>{item.maskedCount} entities</td>
+                      <td style={{ color: "#15803d", fontWeight: 700 }}>0 B</td>
+                      <td className="mono">#{item.sha256Short}</td>
+                      <td style={{ color: "var(--ink-500)" }}>{item.whenLabel}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="footer-link-btn"
+                          onClick={() => handleSelectPresetDoc(item.presetId)}
+                        >
+                          Open ›
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+
+          {/* ==================== VIEW 4: SETTINGS & FIREBASE HYBRID SDK ==================== */}
+          {sidebarNav === "settings" && (
+            <div className="home-dashboard">
+              <section className="home-activity-card">
+                <div className="section-heading-row" style={{ marginBottom: "14px" }}>
+                  <div>
+                    <h2 className="section-h3">Firebase AI Logic Hybrid SDK Configuration</h2>
+                    <p style={{ fontSize: "12.5px", color: "var(--ink-500)", marginTop: "2px" }}>
+                      Configure Stage 1 on-device inference mode, custom organization redaction terms, and optional live Firebase Web credentials.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center", marginBottom: "14px" }}>
+                  <span style={{ fontSize: "13px", fontWeight: 600 }}>Stage 1 Mode (firebase/ai):</span>
+                  <button
+                    type="button"
+                    className={stage1Mode === InferenceMode.ONLY_ON_DEVICE ? "btn-primary-pill" : "btn-outline-pill"}
+                    onClick={() => setStage1Mode(InferenceMode.ONLY_ON_DEVICE)}
+                  >
+                    InferenceMode.ONLY_ON_DEVICE (Gemini Nano)
+                  </button>
+                  <button
+                    type="button"
+                    className={stage1Mode === InferenceMode.PREFER_ON_DEVICE ? "btn-primary-pill" : "btn-outline-pill"}
+                    onClick={() => setStage1Mode(InferenceMode.PREFER_ON_DEVICE)}
+                  >
+                    InferenceMode.PREFER_ON_DEVICE (Airlock Pinned)
+                  </button>
+                </div>
+
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, marginBottom: "5px" }}>
+                    Custom Company / Project Codewords to Mask Locally (comma-separated):
+                  </label>
+                  <input
+                    type="text"
+                    className="text-input"
+                    value={customTermsInput}
+                    onChange={(e) => setCustomTermsInput(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, marginBottom: "5px" }}>
+                    Firebase Web Config JSON (GoogleAIBackend + App Check):
+                  </label>
+                  <textarea
+                    className="doc-textarea mono"
+                    style={{ minHeight: "150px", fontSize: "12px" }}
+                    value={configJsonText}
+                    onChange={(e) => setConfigJsonText(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                  <button type="button" className="btn-primary-pill" onClick={handleSaveFirebaseSettings}>
+                    Save &amp; Re-Analyze Document
+                  </button>
+                  <input
+                    type="text"
+                    className="text-input mono"
+                    style={{ width: "210px" }}
+                    value={cloudModelName}
+                    onChange={(e) => setCloudModelName(e.target.value)}
+                    aria-label="Cloud Gemini model name"
+                  />
+                </div>
+              </section>
+
+              <section className="home-activity-card">
+                <div className="section-heading-row" style={{ marginBottom: "12px" }}>
+                  <h2 className="section-h3">Official SDK Integration Snippet</h2>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                      type="button"
+                      className={sdkLang === "ts" ? "btn-primary-pill" : "btn-outline-pill"}
+                      onClick={() => setSdkLang("ts")}
+                    >
+                      Web (firebase/ai)
+                    </button>
+                    <button
+                      type="button"
+                      className={sdkLang === "kotlin" ? "btn-primary-pill" : "btn-outline-pill"}
+                      onClick={() => setSdkLang("kotlin")}
+                    >
+                      Android (Kotlin)
+                    </button>
+                  </div>
+                </div>
+                <pre className="code-block">
+                  {sdkLang === "ts" ? generateSdkCodeSnippet(stage1Mode, cloudModelName) : KOTLIN_SDK_SNIPPET}
+                </pre>
+              </section>
+            </div>
+          )}
+
+          {/* ==================== VIEW 5: HELP & COMPANION APPS ==================== */}
+          {sidebarNav === "help" && (
+            <div className="home-dashboard">
+              <div className="two-col-cards">
+                <section className="home-activity-card">
+                  <div className="section-heading-row" style={{ marginBottom: "12px" }}>
+                    <div>
+                      <h2 className="section-h3">Chrome Side Panel Extension (MV3)</h2>
+                      <p style={{ fontSize: "12.5px", color: "var(--ink-500)", marginTop: "2px" }}>
+                        Scrub sensitive text directly inside any hospital EHR or legal web portal before pasting into AI tools.
+                      </p>
+                    </div>
+                    <a className="btn-primary-pill" href="/downloads/piizero-chrome-extension.zip" download>
+                      ↓ Download .zip
+                    </a>
+                  </div>
+
+                  <div style={{ background: "#f4f7fc", border: "1px solid #dce6f5", borderRadius: "12px", padding: "14px" }}>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink-500)", marginBottom: "8px" }}>
+                      Side Panel Live Redaction Preview
+                    </div>
+                    <div style={{ background: "#ffffff", borderRadius: "9px", padding: "12px", border: "1px solid #e4ecf7", fontSize: "12.5px", lineHeight: 1.6 }}>
+                      {renderTokenPillsInText((pipelineResult?.scrubResult.sanitizedText ?? "").slice(0, 290) + "…")}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="home-activity-card">
+                  <div className="section-heading-row" style={{ marginBottom: "12px" }}>
+                    <div>
+                      <h2 className="section-h3">Android &amp; Galaxy Z Fold7 Dual-Screen App</h2>
+                      <p style={{ fontSize: "12.5px", color: "var(--ink-500)", marginTop: "2px" }}>
+                        Jetpack Compose + WindowManager FoldingFeature + com.google.firebase:firebase-ai.
+                      </p>
+                    </div>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button
+                        type="button"
+                        className="btn-outline-pill"
+                        onClick={() => setFoldPosture((p) => (p === "unfolded" ? "cover" : "unfolded"))}
+                      >
+                        {foldPosture === "unfolded" ? "Switch to Cover" : "Switch to Unfolded"}
+                      </button>
+                      <a className="btn-primary-pill" href="/downloads/piizero-android-debug.apk" download>
+                        ↓ Download .apk
+                      </a>
+                    </div>
+                  </div>
+
+                  {foldPosture === "unfolded" ? (
+                    <div className="fold-frame">
+                      <div className="fold-dual">
+                        <div style={{ fontSize: "12px", lineHeight: 1.55, paddingRight: "6px" }}>
+                          <div style={{ fontWeight: 700, color: "var(--brand-blue)", marginBottom: "6px" }}>
+                            Left Screen · Local RAM Vault
+                          </div>
+                          {rawText.slice(0, 210)}…
+                        </div>
+                        <div className="fold-hinge" title="Galaxy Z Fold7 Hinge" />
+                        <div style={{ fontSize: "12px", lineHeight: 1.55, paddingLeft: "6px" }}>
+                          <div style={{ fontWeight: 700, color: "#15803d", marginBottom: "6px" }}>
+                            Right Screen · Restored Review
+                          </div>
+                          {renderRestoredProse((analysis?.executiveSummary ?? "").slice(0, 220))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="fold-frame" style={{ maxWidth: "310px", margin: "0 auto" }}>
+                      <div style={{ fontWeight: 700, fontSize: "12.5px", marginBottom: "6px" }}>
+                        PII-Zero Folded Cover Mode · 0 PII Sent
+                      </div>
+                      <div style={{ fontSize: "12px", lineHeight: 1.55 }}>
+                        {renderRestoredProse(analysis?.executiveSummary ?? "")}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Upload / Paste Document Modal */}
+      {uploadModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Upload or paste confidential document">
+          <div className="modal-card">
+            <div className="section-heading-row">
+              <div>
+                <h2 className="section-h3">Load or Paste Confidential Document</h2>
+                <p style={{ fontSize: "12.5px", color: "var(--ink-500)", marginTop: "2px" }}>
+                  Processed 100% in local browser memory before any anonymized prompt is sent to Cloud AI.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-outline-pill"
+                onClick={() => setUploadModalOpen(false)}
+              >
                 Close
               </button>
             </div>
 
-            <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "center", marginBottom: "12px" }}>
-              <span style={{ fontSize: "13px", fontWeight: 500 }}>Local scrubber mode (firebase/ai):</span>
-              <div className="segmented">
-                <button
-                  type="button"
-                  className={"seg-btn " + (stage1Mode === InferenceMode.ONLY_ON_DEVICE ? "active" : "")}
-                  onClick={() => {
-                    setStage1Mode(InferenceMode.ONLY_ON_DEVICE);
-                    void executeAirlock(rawText, customTermsInput, InferenceMode.ONLY_ON_DEVICE, firebaseConfig, cloudModelName);
-                  }}
-                >
-                  Only on-device (Gemini Nano)
-                </button>
-                <button
-                  type="button"
-                  className={"seg-btn " + (stage1Mode === InferenceMode.PREFER_ON_DEVICE ? "active" : "")}
-                  onClick={() => {
-                    setStage1Mode(InferenceMode.PREFER_ON_DEVICE);
-                    void executeAirlock(rawText, customTermsInput, InferenceMode.PREFER_ON_DEVICE, firebaseConfig, cloudModelName);
-                  }}
-                >
-                  Prefer on-device
-                </button>
+            <div>
+              <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--ink-500)", marginBottom: "6px" }}>
+                Or open a built-in medical / legal test record:
               </div>
-              <span style={{ fontSize: "12.5px", color: "var(--fg-muted)" }}>
-                Cloud model: <strong className="mono">{cloudModelName}</strong>
-              </span>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                {CLINICAL_LEGAL_PRESETS.map((p) => {
+                  const m = PRESET_DOC_META[p.id];
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="prompt-chip"
+                      onClick={() => {
+                        setUploadModalOpen(false);
+                        handleSelectPresetDoc(p.id);
+                      }}
+                    >
+                      {m.fileName}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <input
+                type="text"
+                className="text-input"
+                placeholder="Document tab title (e.g. Patient_Discharge.pdf)"
+                value={pasteDraftTitle}
+                onChange={(e) => setPasteDraftTitle(e.target.value)}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,.md,.csv,.json,.log"
+                style={{ display: "none" }}
+                onChange={handleFileUpload}
+              />
+              <button
+                type="button"
+                className="btn-outline-pill"
+                style={{ whiteSpace: "nowrap", height: "36px" }}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Choose Text File…
+              </button>
             </div>
 
             <textarea
-              className="doc-textarea mono"
-              style={{ minHeight: "120px", fontSize: "12px" }}
-              value={configJsonText}
-              onChange={(e) => setConfigJsonText(e.target.value)}
+              className="doc-textarea"
+              placeholder="Paste any medical chart, NDA, legal contract, or clinical note containing names, SSNs, dates, or dollar amounts..."
+              value={pasteDraftBody}
+              onChange={(e) => setPasteDraftBody(e.target.value)}
             />
-            <div style={{ display: "flex", gap: "8px", marginTop: "10px", alignItems: "center" }}>
-              <button type="button" className="btn btn-primary btn-sm" onClick={handleApplyFirebaseConfig}>
-                Save Firebase Config
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+              <button
+                type="button"
+                className="btn-outline-pill"
+                onClick={() => setUploadModalOpen(false)}
+              >
+                Cancel
               </button>
-              <input
-                type="text"
-                className="text-input mono"
-                style={{ width: "200px", height: "28px", fontSize: "12px" }}
-                value={cloudModelName}
-                onChange={(e) => setCloudModelName(e.target.value)}
-                aria-label="Cloud model name"
-              />
+              <button
+                type="button"
+                className="btn-primary-pill"
+                onClick={handleLoadCustomDocument}
+              >
+                Mask Locally &amp; Analyze
+              </button>
             </div>
-          </section>
-        )}
-
-        {/* TAB 1: 3-STEP DOCUMENT STUDIO */}
-        {activeTab === "studio" && (
-          <>
-            <main className="studio-grid" aria-label="Three-step privacy workflow">
-              {/* STEP 1: Original Private Document */}
-              <section className="sheet-card" aria-label="Step 1: Original private document">
-                <div className="sheet-header">
-                  <div className="step-heading">
-                    <span className="step-num s1">1</span>
-                    <div>
-                      <h2 className="sheet-title">Your Private Document</h2>
-                      <p className="sheet-subtitle">Stays in browser memory · never sent out</p>
-                    </div>
-                  </div>
-                  <div className="segmented" role="group" aria-label="Document input mode">
-                    <button
-                      type="button"
-                      className={"seg-btn " + (!isEditingSource ? "active" : "")}
-                      onClick={() => setIsEditingSource(false)}
-                    >
-                      Highlights
-                    </button>
-                    <button
-                      type="button"
-                      className={"seg-btn " + (isEditingSource ? "active" : "")}
-                      onClick={() => setIsEditingSource(true)}
-                    >
-                      Edit text
-                    </button>
-                  </div>
-                </div>
-
-                <div className="sheet-body">
-                  {!isEditingSource ? (
-                    <div className="doc-prose">
-                      {renderFormattedLines(rawText, vaultEntries, "raw")}
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                      <textarea
-                        id="raw-clinical-input"
-                        aria-label="Paste private medical or legal text"
-                        className="doc-textarea"
-                        value={rawText}
-                        onChange={(e) => setRawText(e.target.value)}
-                      />
-                      <div>
-                        <label
-                          htmlFor="custom-policy-terms"
-                          style={{ display: "block", fontSize: "12px", color: "var(--fg-secondary)", marginBottom: "5px" }}
-                        >
-                          Extra project or client codewords to hide (comma-separated):
-                        </label>
-                        <input
-                          id="custom-policy-terms"
-                          type="text"
-                          className="text-input"
-                          value={customTermsInput}
-                          onChange={(e) => setCustomTermsInput(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="sheet-footer">
-                  <span>
-                    <strong>{totalDetected}</strong> private items spotted locally
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={() => setIsEditingSource((v) => !v)}
-                  >
-                    {isEditingSource ? "Done editing" : "Paste your own text"}
-                  </button>
-                </div>
-              </section>
-
-              {/* Visual Arrow 1 -> 2 */}
-              <div className="step-connector" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 12h14M13 6l6 6-6 6" />
-                </svg>
-              </div>
-
-              {/* STEP 2: What Google Cloud Actually Sees */}
-              <section className="sheet-card" aria-label="Step 2: Redacted prompt sent to Google Cloud">
-                <div className="sheet-header">
-                  <div className="step-heading">
-                    <span className="step-num s2">2</span>
-                    <div>
-                      <h2 className="sheet-title">What Google Cloud Sees</h2>
-                      <p className="sheet-subtitle">Sent over HTTPS to Gemini 2.5 Flash</p>
-                    </div>
-                  </div>
-                  <span className="badge-safe">✓ 0 PII sent</span>
-                </div>
-
-                <div className="sheet-body">
-                  <div className="doc-prose">
-                    {renderFormattedLines(
-                      pipelineResult?.scrubResult.sanitizedText ?? "",
-                      vaultEntries,
-                      "tokens"
-                    )}
-                  </div>
-                </div>
-
-                <div className="sheet-footer">
-                  <span className="mono" style={{ fontSize: "11.5px" }}>
-                    Leak check passed · #{shortSha}
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={() => setActiveTab("vault")}
-                  >
-                    View vault ({vaultEntries.length}) →
-                  </button>
-                </div>
-              </section>
-
-              {/* Visual Arrow 2 -> 3 */}
-              <div className="step-connector" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 12h14M13 6l6 6-6 6" />
-                </svg>
-              </div>
-
-              {/* STEP 3: Restored AI Analysis */}
-              <section className="sheet-card" aria-label="Step 3: AI analysis with names restored locally">
-                <div className="sheet-header">
-                  <div className="step-heading">
-                    <span className="step-num s3">3</span>
-                    <div>
-                      <h2 className="sheet-title">Gemini 2.5 Flash Review</h2>
-                      <p className="sheet-subtitle">Names filled back in on your device</p>
-                    </div>
-                  </div>
-                  <div className="segmented" role="group" aria-label="Result view toggle">
-                    <button
-                      type="button"
-                      className={"seg-btn " + (rehydrateView ? "active" : "")}
-                      onClick={() => setRehydrateView(true)}
-                    >
-                      Restored
-                    </button>
-                    <button
-                      type="button"
-                      className={"seg-btn " + (!rehydrateView ? "active" : "")}
-                      onClick={() => setRehydrateView(false)}
-                    >
-                      Cloud raw
-                    </button>
-                  </div>
-                </div>
-
-                <div className="sheet-body">
-                  <div className="brief-section-label">
-                    <span>Key risks &amp; recommended actions</span>
-                    <span>{analysis?.pharmacovigilanceOrClauseAlerts.length ?? 0} flagged</span>
-                  </div>
-
-                  {analysis?.pharmacovigilanceOrClauseAlerts.map((alert, idx) => (
-                    <div
-                      key={idx}
-                      className={"risk-callout " + (alert.severity === "CRITICAL" ? "critical" : "")}
-                    >
-                      <div className="risk-header">
-                        <span>{alert.title}</span>
-                        <span className={"risk-badge " + (alert.severity === "CRITICAL" ? "critical" : "")}>
-                          {alert.severity === "CRITICAL" ? "Critical" : "High"}
-                        </span>
-                      </div>
-                      <div className="risk-text">
-                        {renderFormattedLines(
-                          rehydrateView
-                            ? replaceTokensWithValues(alert.mechanismOrClause, vaultEntries)
-                            : alert.mechanismOrClause,
-                          vaultEntries,
-                          rehydrateView ? "restored" : "tokens"
-                        )}
-                      </div>
-                      <div className="risk-action">
-                        <strong>Action: </strong>
-                        {renderTokenOrRestoredSegment(
-                          rehydrateView
-                            ? replaceTokensWithValues(alert.recommendation, vaultEntries)
-                            : alert.recommendation,
-                          vaultEntries,
-                          rehydrateView ? "restored" : "tokens"
-                        )}
-                      </div>
-                    </div>
-                  ))}
-
-                  <div className="brief-section-label">
-                    <span>Summary brief</span>
-                  </div>
-                  <div
-                    className="doc-prose"
-                    style={{
-                      background: "var(--bg-subtle)",
-                      border: "1px solid var(--border-subtle)",
-                      borderRadius: "7px",
-                      padding: "12px 14px"
-                    }}
-                  >
-                    {renderFormattedLines(
-                      rehydrateView
-                        ? pipelineResult?.rehydratedNarrative.rehydratedText ?? ""
-                        : analysis?.rehydratableNarrativeReport ?? "",
-                      vaultEntries,
-                      rehydrateView ? "restored" : "tokens"
-                    )}
-                  </div>
-
-                  <div className="brief-section-label">
-                    <span>Reference codes</span>
-                  </div>
-                  <table className="clean-table" style={{ border: "1px solid var(--border-subtle)", borderRadius: "6px" }}>
-                    <thead>
-                      <tr>
-                        <th>Code</th>
-                        <th>Finding</th>
-                        <th>Priority</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {analysis?.clinicalDifferentialAndCoding.map((row, idx) => (
-                        <tr key={idx}>
-                          <td className="mono" style={{ fontWeight: 600, whiteSpace: "nowrap" }}>
-                            {row.code}
-                          </td>
-                          <td>
-                            {renderTokenOrRestoredSegment(
-                              rehydrateView
-                                ? replaceTokensWithValues(row.finding, vaultEntries)
-                                : row.finding,
-                              vaultEntries,
-                              rehydrateView ? "restored" : "tokens"
-                            )}
-                          </td>
-                          <td style={{ fontSize: "12px", color: "var(--fg-secondary)", whiteSpace: "nowrap" }}>
-                            {row.riskLevel}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="sheet-footer">
-                  <span>
-                    <strong>{pipelineResult?.rehydratedNarrative.restoredCount ?? 0}</strong> names &amp; IDs restored locally
-                  </span>
-                  <span style={{ color: "var(--fg-muted)" }}>Hover any highlight to inspect</span>
-                </div>
-              </section>
-            </main>
-
-            {/* Simple Visual Color Key */}
-            <footer className="legend-bar" aria-label="Highlight color key">
-              <div className="legend-items">
-                <span className="legend-item">
-                  <span className="mark-raw">Elena Rostova</span>
-                  <span>Spotted locally &amp; kept on device</span>
-                </span>
-                <span className="legend-item">
-                  <span className="mark-token">[PII_NAME_01]</span>
-                  <span>Placeholder sent to Google Cloud</span>
-                </span>
-                <span className="legend-item">
-                  <span className="mark-restored">Elena Rostova</span>
-                  <span>Restored locally in your final answer</span>
-                </span>
-              </div>
-              <span className="mono" style={{ fontSize: "12px", color: "var(--fg-muted)" }}>
-                Firebase AI Logic ({pipelineResult?.onDeviceStatus.chromePromptApiDetected ? "Gemini Nano + " : "On-device + "}
-                Gemini 2.5 Flash)
-              </span>
-            </footer>
-          </>
-        )}
-
-        {/* TAB 2: LOCAL VAULT & 18 HIPAA/LEGAL RULES */}
-        {activeTab === "vault" && (
-          <main className="two-col-grid">
-            <section className="panel-card">
-              <div className="panel-header">
-                <div>
-                  <h2 className="panel-title">In-Memory Lookup Vault ({vaultEntries.length} unique items)</h2>
-                  <p className="panel-desc">
-                    Stored only in a temporary JavaScript Map inside this tab. Closing or refreshing wipes it immediately.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => setRevealVaultValues((v) => !v)}
-                >
-                  {revealVaultValues ? "Mask originals" : "Reveal originals"}
-                </button>
-              </div>
-
-              <div style={{ maxHeight: "540px", overflowY: "auto" }}>
-                <table className="clean-table">
-                  <thead>
-                    <tr>
-                      <th>Cloud Placeholder</th>
-                      <th>Original Value (Local RAM)</th>
-                      <th>Category</th>
-                      <th>Count</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {vaultEntries.map((entry) => (
-                      <tr key={entry.token}>
-                        <td>
-                          <span className="mark-token">{entry.token}</span>
-                        </td>
-                        <td className="mono" style={{ fontSize: "12.5px" }}>
-                          {revealVaultValues ? entry.originalValue : "••••••••••••"}
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 500 }}>{entry.label}</div>
-                          <div style={{ fontSize: "11.5px", color: "var(--fg-muted)" }}>{entry.regulationRef}</div>
-                        </td>
-                        <td className="mono">{entry.occurrences}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section className="panel-card">
-              <div className="panel-header">
-                <div>
-                  <h2 className="panel-title">18 HIPAA Safe Harbor &amp; Legal Privilege Rules</h2>
-                  <p className="panel-desc">
-                    Every outgoing prompt is checked against all 18 identifier classes before any network call is allowed.
-                  </p>
-                </div>
-                <span className="badge-safe">All 18 active</span>
-              </div>
-
-              <div style={{ maxHeight: "540px", overflowY: "auto" }}>
-                <table className="clean-table">
-                  <thead>
-                    <tr>
-                      <th>Rule Category</th>
-                      <th>Placeholder</th>
-                      <th>Found in Current Note</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.values(PII_CATEGORIES).map((cat) => {
-                      const count = categoryCounts.get(cat.id) ?? 0;
-                      return (
-                        <tr key={cat.id}>
-                          <td>
-                            <div style={{ fontWeight: 500 }}>{cat.label}</div>
-                            <div style={{ fontSize: "11.5px", color: "var(--fg-muted)" }}>{cat.regulationRef}</div>
-                          </td>
-                          <td>
-                            <span className="mark-token">[{cat.tokenPrefix}_01]</span>
-                          </td>
-                          <td className="mono" style={{ fontWeight: count > 0 ? 600 : 400, color: count > 0 ? "var(--status-safe)" : "var(--fg-muted)" }}>
-                            {count > 0 ? `✓ ${count} scrubbed` : "—"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </main>
-        )}
-
-        {/* TAB 3: CHROME EXTENSION & ANDROID FOLDABLE APPS */}
-        {activeTab === "apps" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-            <div className="two-col-grid">
-              {/* Chrome MV3 Side Panel Preview */}
-              <section className="panel-card">
-                <div className="panel-header">
-                  <div>
-                    <h2 className="panel-title">Chrome Side Panel Extension (Manifest V3)</h2>
-                    <p className="panel-desc">
-                      Highlight any clinical chart or contract box on the web, right-click to scrub locally, and paste safely.
-                    </p>
-                  </div>
-                  <a className="btn btn-primary btn-sm" href="/downloads/piizero-chrome-extension.zip" download>
-                    Download Extension (.zip)
-                  </a>
-                </div>
-
-                <div style={{ padding: "18px" }}>
-                  <div className="browser-mockup">
-                    <div className="browser-chrome">
-                      <div className="window-dots">
-                        <span />
-                        <span />
-                        <span />
-                      </div>
-                      <div className="browser-url">https://ehr.hospital.org/chart/discharge-note</div>
-                    </div>
-                    <div className="browser-split">
-                      <div className="ehr-page">
-                        <div style={{ fontSize: "11.5px", fontWeight: 600, color: "var(--fg-muted)", marginBottom: "6px" }}>
-                          Hospital EHR Chart Field
-                        </div>
-                        <div
-                          className="doc-prose"
-                          style={{
-                            fontSize: "12.5px",
-                            padding: "10px",
-                            borderRadius: "6px",
-                            border: "1px solid var(--border-subtle)",
-                            background: "var(--bg-subtle)"
-                          }}
-                        >
-                          {renderFormattedLines(rawText.slice(0, 290) + "…", vaultEntries, "raw")}
-                        </div>
-                      </div>
-                      <div className="ext-sidepanel">
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <strong style={{ fontSize: "12.5px" }}>PII-Zero Side Panel</strong>
-                          <span className="badge-safe">0 PII</span>
-                        </div>
-                        <div
-                          className="doc-prose"
-                          style={{
-                            fontSize: "12px",
-                            padding: "8px 10px",
-                            borderRadius: "6px",
-                            background: "var(--bg-surface)",
-                            border: "1px solid var(--border-subtle)",
-                            flex: 1
-                          }}
-                        >
-                          {renderFormattedLines(
-                            (pipelineResult?.scrubResult.sanitizedText ?? "").slice(0, 220) + "…",
-                            vaultEntries,
-                            "tokens"
-                          )}
-                        </div>
-                        <div
-                          style={{
-                            textAlign: "center",
-                            padding: "6px",
-                            borderRadius: "6px",
-                            background: "var(--btn-primary-bg)",
-                            color: "var(--btn-primary-fg)",
-                            fontSize: "11.5px",
-                            fontWeight: 600
-                          }}
-                        >
-                          Replace form text with redacted copy
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* Android Galaxy Z Fold7 App Preview */}
-              <section className="panel-card">
-                <div className="panel-header">
-                  <div>
-                    <h2 className="panel-title">Android App (Kotlin &amp; Galaxy Z Fold7 Split View)</h2>
-                    <p className="panel-desc">
-                      Built with Jetpack Compose, WindowManager FoldingFeature, and com.google.firebase:firebase-ai.
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                    <div className="segmented">
-                      <button
-                        type="button"
-                        className={"seg-btn " + (foldPosture === "unfolded" ? "active" : "")}
-                        onClick={() => setFoldPosture("unfolded")}
-                      >
-                        Unfolded
-                      </button>
-                      <button
-                        type="button"
-                        className={"seg-btn " + (foldPosture === "cover" ? "active" : "")}
-                        onClick={() => setFoldPosture("cover")}
-                      >
-                        Phone cover
-                      </button>
-                    </div>
-                    <a className="btn btn-primary btn-sm" href="/downloads/piizero-android-debug.apk" download>
-                      Download Android (.apk)
-                    </a>
-                  </div>
-                </div>
-
-                <div style={{ padding: "18px" }}>
-                  {foldPosture === "unfolded" ? (
-                    <div className="fold-hardware">
-                      <div className="fold-screens">
-                        <div style={{ padding: "8px 10px" }}>
-                          <div style={{ fontSize: "11.5px", fontWeight: 600, color: "var(--fg-muted)", marginBottom: "6px" }}>
-                            Left screen · Private note (Local RAM)
-                          </div>
-                          <div className="doc-prose" style={{ fontSize: "12px" }}>
-                            {renderFormattedLines(rawText.slice(0, 235) + "…", vaultEntries, "raw")}
-                          </div>
-                        </div>
-                        <div className="fold-crease" title="Galaxy Z Fold7 hinge gutter" />
-                        <div style={{ padding: "8px 10px" }}>
-                          <div style={{ fontSize: "11.5px", fontWeight: 600, color: "var(--status-safe)", marginBottom: "6px" }}>
-                            Right screen · Restored Gemini 2.5 Flash review
-                          </div>
-                          <div className="doc-prose" style={{ fontSize: "12px" }}>
-                            {renderFormattedLines(
-                              (pipelineResult?.rehydratedNarrative.rehydratedText ?? "").slice(0, 250) + "…",
-                              vaultEntries,
-                              "restored"
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="fold-hardware" style={{ maxWidth: "330px", margin: "0 auto" }}>
-                      <div style={{ padding: "8px 10px", minHeight: "235px" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                          <strong style={{ fontSize: "12px" }}>PII-Zero Mobile</strong>
-                          <span className="badge-safe">0 PII sent</span>
-                        </div>
-                        <div className="doc-prose" style={{ fontSize: "12px" }}>
-                          {renderFormattedLines(
-                            (pipelineResult?.rehydratedNarrative.rehydratedText ?? "").slice(0, 260) + "…",
-                            vaultEntries,
-                            "restored"
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </section>
-            </div>
-
-            {/* Clean SDK Code Reference */}
-            <section className="panel-card">
-              <div className="panel-header">
-                <div>
-                  <h2 className="panel-title">How Firebase AI Logic Hybrid SDK Is Wired</h2>
-                  <p className="panel-desc">
-                    Local Gemini Nano handles entity scrubbing; Cloud Gemini 2.5 Flash only receives verified placeholder tokens.
-                  </p>
-                </div>
-                <div className="segmented">
-                  <button
-                    type="button"
-                    className={"seg-btn " + (sdkLang === "ts" ? "active" : "")}
-                    onClick={() => setSdkLang("ts")}
-                  >
-                    Web (firebase/ai)
-                  </button>
-                  <button
-                    type="button"
-                    className={"seg-btn " + (sdkLang === "kotlin" ? "active" : "")}
-                    onClick={() => setSdkLang("kotlin")}
-                  >
-                    Android (Kotlin)
-                  </button>
-                </div>
-              </div>
-              <pre className="code-block">
-                {sdkLang === "ts" ? generateSdkCodeSnippet(stage1Mode, cloudModelName) : KOTLIN_SDK_SNIPPET}
-              </pre>
-            </section>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   );
 };
+

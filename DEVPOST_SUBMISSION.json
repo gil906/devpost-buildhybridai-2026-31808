@@ -1,7 +1,7 @@
 {
-  "name": "PII-Zero: Local Privacy Shield for Medical & Legal AI",
-  "title": "PII-Zero: Local Privacy Shield for Medical & Legal AI",
-  "tagline": "Hides patient and client identities on your device with Gemini Nano before Cloud Gemini analyzes the document.",
+  "name": "PII-Zero: Zero-Trust Hybrid AI for Sensitive Documents",
+  "title": "PII-Zero: Zero-Trust Hybrid AI for Sensitive Documents",
+  "tagline": "Masked locally on-device with Gemini Nano • Analyzed safely in the cloud with Gemini Flash • 0 PII exposed",
   "built_with": [
     "firebase",
     "gemini",

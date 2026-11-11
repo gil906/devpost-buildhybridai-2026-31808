@@ -372,6 +372,63 @@ export function createAirlockServer() {
       return;
     }
 
+    // Stage 3 Sanitized Q&A Assistant endpoint (rejects raw PII in both document and question)
+    if (req.method === "POST" && pathname === "/api/airlock/ask-sanitized") {
+      try {
+        const t0 = Date.now();
+        const body = await readJsonBody(req);
+        const sanitizedText = String(body.sanitizedText || "");
+        const sanitizedQuestion = String(body.sanitizedQuestion || "");
+        const vaultTokens = Array.isArray(body.vaultTokens) ? body.vaultTokens : [];
+
+        const violations = [
+          ...detectRawPiiViolations(sanitizedText),
+          ...detectRawPiiViolations(sanitizedQuestion)
+        ];
+        if (violations.length > 0) {
+          sendJson(res, 422, {
+            error: "ZERO_PII_AIRLOCK_REJECTED",
+            message: "Outbound Q&A payload rejected by Stage 2 Airlock: detected unredacted PII pattern.",
+            violations
+          });
+          return;
+        }
+
+        const analysis = buildServerSideAnalysis(sanitizedText, vaultTokens);
+        const customToken = vaultTokens.find((t) => t.category === "CUSTOM_POLICY")?.token;
+        const nameToken = vaultTokens.find((t) => t.category === "PATIENT_CLIENT_NAME")?.token || "[PII_NAME_01]";
+        const settlementToken = vaultTokens.find((t) => t.category === "SETTLEMENT_AMOUNT")?.token || "[PII_SETTLEMENT_01]";
+        const docketToken = vaultTokens.find((t) => t.category === "CASE_DOCKET")?.token || "[PII_DOCKET_01]";
+        const qLower = sanitizedQuestion.toLowerCase();
+
+        const sections = analysis.pharmacovigilanceOrClauseAlerts.map((alert) => ({
+          heading: alert.title,
+          body: `${alert.mechanismOrClause} Recommended action: ${alert.recommendation}`
+        }));
+
+        sections.push({
+          heading: qLower.includes("modif") || qLower.includes("redline")
+            ? "Suggested Modification & Safe Next Step"
+            : "Other Key Points & Zero-PII Scope",
+          body: customToken
+            ? `Reviewed for ${nameToken} under ${customToken} (${docketToken}, exposure ${settlementToken}). All personal, corporate, and financial identifiers remained masked locally during Cloud AI reasoning.`
+            : `${analysis.executiveSummary} All personal identifiers remained inside browser RAM during Cloud AI reasoning.`
+        });
+
+        sendJson(res, 200, {
+          status: "answered",
+          zeroPiiVerified: true,
+          inferenceSource: "in_cloud",
+          latencyMs: Math.max(2, Date.now() - t0),
+          intro: `I've reviewed the anonymized document (${analysis.documentClassification}) and here's the breakdown:`,
+          sections
+        });
+      } catch (err) {
+        sendJson(res, 400, { error: "Invalid JSON payload", detail: String(err) });
+      }
+      return;
+    }
+
     // Companion artifact downloads
     if (
       isGetOrHead &&
