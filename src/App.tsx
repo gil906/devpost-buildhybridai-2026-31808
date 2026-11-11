@@ -512,6 +512,7 @@ export const App: React.FC = () => {
   );
   const [peekEnabled, setPeekEnabled] = useState<boolean>(true);
   const [activePeekOccurrenceKey, setActivePeekOccurrenceKey] = useState<string>("first");
+  const [activePeekToken, setActivePeekToken] = useState<string | null>(null);
   const [hiddenVaultTokens, setHiddenVaultTokens] = useState<Set<string>>(() => new Set());
   const [rehydrateRight, setRehydrateRight] = useState<boolean>(urlInit.rehydrate);
 
@@ -660,6 +661,7 @@ export const App: React.FC = () => {
         });
         setPipelineResult(result);
         setActivePeekOccurrenceKey("first");
+        setActivePeekToken(null);
         setQaThread([buildDefaultQaTurn(result, docId)]);
 
         if (meta) {
@@ -951,11 +953,32 @@ export const App: React.FC = () => {
   const shortSha = (pipelineResult?.scrubResult.sanitizedSha256 ?? "").slice(0, 12).toUpperCase();
   const liveFirebase = isLiveFirebaseConfigured(firebaseConfig);
 
+  const primaryPersonEntry = useMemo(() => {
+    const persons = vaultEntries.filter((v) => v.category === "PATIENT_CLIENT_NAME");
+    return (
+      persons.find(
+        (v) =>
+          !v.token.startsWith("[PROVIDER") &&
+          !/^(?:Dr\.|Prof\.)\s/i.test(v.originalValue)
+      ) ?? persons[0] ?? null
+    );
+  }, [vaultEntries]);
+
   const primarySubjectName = useMemo(() => {
-    const person = vaultEntries.find((v) => v.category === "PATIENT_CLIENT_NAME");
-    if (!person) return "Protected Subject";
-    return maskDisplayValue(person, !hiddenVaultTokens.has(person.token));
-  }, [vaultEntries, hiddenVaultTokens]);
+    if (!primaryPersonEntry) return "Protected Subject";
+    return maskDisplayValue(
+      primaryPersonEntry,
+      !hiddenVaultTokens.has(primaryPersonEntry.token)
+    );
+  }, [primaryPersonEntry, hiddenVaultTokens]);
+
+  const activePeekEntry = useMemo(() => {
+    if (activePeekToken) {
+      const found = vaultEntries.find((v) => v.token === activePeekToken);
+      if (found) return found;
+    }
+    return primaryPersonEntry ?? vaultEntries[0] ?? null;
+  }, [activePeekToken, primaryPersonEntry, vaultEntries]);
 
   const categoryCounts = useMemo(() => {
     const map = new Map<PiiCategoryId, number>();
@@ -990,7 +1013,11 @@ export const App: React.FC = () => {
       if (!entry) return <React.Fragment key={idx}>{part}</React.Fragment>;
 
       let occKey = `${linePrefix}-${idx}-${entry.token}`;
-      if (!firstTracker.assigned && entry.category === "PATIENT_CLIENT_NAME") {
+      const isPrimaryPerson =
+        entry.category === "PATIENT_CLIENT_NAME" &&
+        !entry.token.startsWith("[PROVIDER") &&
+        !/^(?:Dr\.|Prof\.)\s/i.test(entry.originalValue);
+      if (!firstTracker.assigned && isPrimaryPerson) {
         occKey = "first";
         firstTracker.assigned = true;
       }
@@ -1007,9 +1034,13 @@ export const App: React.FC = () => {
         <span
           key={idx}
           className="entity-pill-anchor"
-          onMouseEnter={() => setActivePeekOccurrenceKey(occKey)}
+          onMouseEnter={() => {
+            setActivePeekOccurrenceKey(occKey);
+            setActivePeekToken(entry.token);
+          }}
           onClick={() => {
             setActivePeekOccurrenceKey(occKey);
+            setActivePeekToken(entry.token);
             if (entry.category === "SSN") toggleVaultTokenVisibility(entry.token);
           }}
         >
@@ -1324,15 +1355,27 @@ export const App: React.FC = () => {
         {/* Left Frosted Sidebar with Pine-Mountain Footer */}
         <aside className="pz-sidebar" aria-label="Primary navigation">
           <div className="sidebar-top">
-            <button
-              type="button"
-              className="brand-lockup"
-              title="Toggle Workspace / Overview"
-              onClick={() => setSidebarNav((prev) => (prev === "document" ? "home" : "document"))}
-            >
-              <ShieldSparkleLogo />
-              <span className="brand-wordmark">PII-Zero</span>
-            </button>
+            <div className="sidebar-brand-row">
+              <button
+                type="button"
+                className="brand-lockup"
+                title="Toggle Workspace / Overview"
+                onClick={() => setSidebarNav((prev) => (prev === "document" ? "home" : "document"))}
+              >
+                <ShieldSparkleLogo />
+                <span className="brand-wordmark">PII-Zero</span>
+              </button>
+
+              <div className="mobile-trust-pill" title="Pre-send gatekeeper verified 0 raw PII bytes leave your device">
+                <span className="live-green-dot" />
+                <span>0 PII Sent</span>
+                <span className="shield-verified-icon" aria-hidden="true">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8">
+                    <path d="M9 12l2 2 4-4" />
+                  </svg>
+                </span>
+              </div>
+            </div>
 
             <nav className="sidebar-nav">
               <button
@@ -1463,14 +1506,16 @@ export const App: React.FC = () => {
                 onClick={() => setUploadModalOpen(true)}
               >
                 <span style={{ fontSize: "16px", fontWeight: 500 }}>+</span>
-                <span>Upload / Paste</span>
+                <span className="hide-xs">Upload / Paste</span>
+                <span className="show-xs">Upload</span>
               </button>
             </div>
 
             <div className="scrubber-status-pill" title="Pre-send gatekeeper verified 0 raw PII bytes leave your device">
               <span className="live-green-dot" />
               <span>
-                On-Device Scrubber Active • <strong>0 PII Sent to Cloud</strong>
+                <span className="hide-compact">On-Device Scrubber Active • </span>
+                <strong>0 PII Sent to Cloud</strong>
               </span>
               <span className="shield-verified-icon" aria-hidden="true">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6">
@@ -1485,12 +1530,15 @@ export const App: React.FC = () => {
           <div className="hybrid-pipeline-row">
             <div className="hybrid-pipeline-pill" aria-label="Hybrid AI execution summary">
               <span className="pipeline-step">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" style={{ flexShrink: 0 }}>
                   <rect x="3" y="4" width="18" height="12" rx="2" />
                   <path d="M2 20h20" />
                 </svg>
-                <span>
+                <span className="hide-xs">
                   On-Device AI: <strong>{isRunning ? "Scanning…" : `${totalMasked} PII Entities Masked Locally`}</strong>
+                </span>
+                <span className="show-xs">
+                  On-Device: <strong>{isRunning ? "Scanning…" : `${totalMasked} Masked`}</strong>
                 </span>
               </span>
 
@@ -1500,12 +1548,15 @@ export const App: React.FC = () => {
 
               <span className="pipeline-step cloud">
                 <span className="pipeline-cloud-badge" aria-hidden="true">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M18.4 10.2A6.5 6.5 0 0 0 6 8.8 5 5 0 0 0 6.5 18.8h11.4a4.3 4.3 0 0 0 .5-8.6z" />
                   </svg>
                 </span>
-                <span>
+                <span className="hide-xs">
                   Cloud AI: <strong>Analyzed Safely{liveFirebase ? " (Live Firebase)" : ""}</strong>
+                </span>
+                <span className="show-xs">
+                  Cloud AI: <strong>Analyzed Safely</strong>
                 </span>
               </span>
             </div>
@@ -1560,7 +1611,8 @@ export const App: React.FC = () => {
                         <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
                         <circle cx="12" cy="12" r="3" />
                       </svg>
-                      <span>Redacted Version</span>
+                      <span className="hide-compact">Redacted Version</span>
+                      <span className="show-compact">Redacted</span>
                     </button>
 
                     <button
@@ -1574,7 +1626,8 @@ export const App: React.FC = () => {
                         <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
                         <path d="M9 12l2 2 4-4" />
                       </svg>
-                      <span>Privacy Audit</span>
+                      <span className="hide-compact">Privacy Audit</span>
+                      <span className="show-compact">Audit</span>
                     </button>
                   </div>
 
@@ -1597,6 +1650,16 @@ export const App: React.FC = () => {
                 {/* SUB-TAB A: Original Document with Inline Color-Coded Entity Pills + Tooltip */}
                 {leftTab === "document" && (
                   <div className="doc-sheet-wrap">
+                    {peekEnabled && activePeekEntry && (
+                      <div className="mobile-peek-bar" role="status">
+                        <span className="mobile-peek-text">
+                          <strong>{maskDisplayValue(activePeekEntry, !hiddenVaultTokens.has(activePeekEntry.token))}</strong>
+                          {" → sent to cloud as "}
+                          <code className="mobile-peek-token">{activePeekEntry.token}</code>
+                        </span>
+                        <span className="mobile-peek-hint">Tap any pill</span>
+                      </div>
+                    )}
                     {renderStructuredSheet("raw")}
                   </div>
                 )}
@@ -1620,7 +1683,7 @@ export const App: React.FC = () => {
                               Local Entity Vault ({vaultEntries.length})
                             </div>
                             <div style={{ fontSize: "11.5px", color: "var(--ink-500)" }}>
-                              Original values are stored in browser RAM only
+                              Original values stored in browser RAM only
                             </div>
                           </div>
                         </div>
@@ -1628,9 +1691,11 @@ export const App: React.FC = () => {
                         <button
                           type="button"
                           className="btn-outline-pill"
+                          style={{ flexShrink: 0, whiteSpace: "nowrap" }}
                           onClick={handleExportRedacted}
                         >
-                          <span>↓ Export Redacted PDF</span>
+                          <span className="hide-compact">↓ Export Redacted PDF</span>
+                          <span className="show-compact">↓ Export</span>
                         </button>
                       </div>
 
@@ -1678,6 +1743,40 @@ export const App: React.FC = () => {
                             })}
                           </tbody>
                         </table>
+                      </div>
+
+                      <div className="vault-mobile-list">
+                        {vaultEntries.map((entry) => {
+                          const isVis = !hiddenVaultTokens.has(entry.token);
+                          const color = getEntryPillColor(entry);
+                          return (
+                            <div key={entry.token} className="vault-mobile-row">
+                              <div className="vault-mobile-main">
+                                <div className="vault-mobile-val">
+                                  {maskDisplayValue(entry, isVis)}
+                                </div>
+                                <div className="vault-mobile-meta">
+                                  <span className={`entity-pill token-mono ${color}`}>
+                                    {entry.token}
+                                  </span>
+                                  <span className="vault-mobile-type">
+                                    {getCategoryShortType(entry.category)}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={isVis}
+                                aria-label={`Toggle visibility for ${entry.token}`}
+                                className={"ios-switch " + (isVis ? "on" : "")}
+                                onClick={() => toggleVaultTokenVisibility(entry.token)}
+                              >
+                                <span className="ios-switch-knob" />
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -1815,7 +1914,8 @@ export const App: React.FC = () => {
                       onClick={() => setRightTab("qa")}
                     >
                       <span style={{ color: "#7c3aed" }}>✦</span>
-                      <span>Q&amp;A Assistant</span>
+                      <span className="hide-compact">Q&amp;A Assistant</span>
+                      <span className="show-compact">Q&amp;A</span>
                     </button>
                   </div>
 
@@ -1824,11 +1924,12 @@ export const App: React.FC = () => {
                       <button
                         type="button"
                         className="btn-outline-pill"
-                        style={{ height: "26px", fontSize: "11px", padding: "0 10px" }}
+                        style={{ height: "26px", fontSize: "11px", padding: "0 9px", whiteSpace: "nowrap" }}
                         onClick={() => setRehydrateRight((v) => !v)}
                         title="Toggle between locally restored names and raw tokens returned by Cloud AI"
                       >
-                        {rehydrateRight ? "Restored Names" : "Cloud Tokens"}
+                        <span className="hide-compact">{rehydrateRight ? "Restored Names" : "Cloud Tokens"}</span>
+                        <span className="show-compact">{rehydrateRight ? "Restored" : "Tokens"}</span>
                       </button>
                     </div>
                   )}
@@ -2183,38 +2284,40 @@ export const App: React.FC = () => {
                 </button>
               </div>
 
-              <table className="vault-table">
-                <thead>
-                  <tr>
-                    <th>Document</th>
-                    <th>Masked Locally</th>
-                    <th>Cloud PII Bytes</th>
-                    <th>SHA-256 Receipt</th>
-                    <th>Time</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditHistory.map((item) => (
-                    <tr key={item.id}>
-                      <td style={{ fontWeight: 600 }}>{item.fileName}</td>
-                      <td>{item.maskedCount} entities</td>
-                      <td style={{ color: "#15803d", fontWeight: 700 }}>0 B</td>
-                      <td className="mono">#{item.sha256Short}</td>
-                      <td style={{ color: "var(--ink-500)" }}>{item.whenLabel}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="footer-link-btn"
-                          onClick={() => handleSelectPresetDoc(item.presetId)}
-                        >
-                          Open ›
-                        </button>
-                      </td>
+              <div className="table-responsive-scroll">
+                <table className="vault-table">
+                  <thead>
+                    <tr>
+                      <th>Document</th>
+                      <th>Masked Locally</th>
+                      <th>Cloud PII Bytes</th>
+                      <th>SHA-256 Receipt</th>
+                      <th>Time</th>
+                      <th>Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {auditHistory.map((item) => (
+                      <tr key={item.id}>
+                        <td style={{ fontWeight: 600 }}>{item.fileName}</td>
+                        <td>{item.maskedCount} entities</td>
+                        <td style={{ color: "#15803d", fontWeight: 700 }}>0 B</td>
+                        <td className="mono">#{item.sha256Short}</td>
+                        <td style={{ color: "var(--ink-500)" }}>{item.whenLabel}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="footer-link-btn"
+                            onClick={() => handleSelectPresetDoc(item.presetId)}
+                          >
+                            Open ›
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </section>
           )}
 
@@ -2273,14 +2376,14 @@ export const App: React.FC = () => {
                   />
                 </div>
 
-                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
                   <button type="button" className="btn-primary-pill" onClick={handleSaveFirebaseSettings}>
                     Save &amp; Re-Analyze Document
                   </button>
                   <input
                     type="text"
                     className="text-input mono"
-                    style={{ width: "210px" }}
+                    style={{ width: "210px", maxWidth: "100%" }}
                     value={cloudModelName}
                     onChange={(e) => setCloudModelName(e.target.value)}
                     aria-label="Cloud Gemini model name"
@@ -2440,10 +2543,11 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
               <input
                 type="text"
                 className="text-input"
+                style={{ flex: "1 1 200px" }}
                 placeholder="Document tab title (e.g. Patient_Discharge.pdf)"
                 value={pasteDraftTitle}
                 onChange={(e) => setPasteDraftTitle(e.target.value)}

@@ -96,7 +96,10 @@ function detectRawPiiViolations(text) {
 function buildServerSideAnalysis(sanitizedText, vaultTokens = []) {
   const findToken = (cat, fallback) =>
     vaultTokens.find((t) => t.category === cat)?.token || fallback;
-  const nameToken = findToken("PATIENT_CLIENT_NAME", "[PII_NAME_01]");
+  const personTokens = vaultTokens.filter((t) => t.category === "PATIENT_CLIENT_NAME");
+  const primaryPerson =
+    personTokens.find((t) => !String(t.token || "").startsWith("[PROVIDER")) || personTokens[0];
+  const nameToken = primaryPerson?.token || "[PII_NAME_01]";
   const mrnToken = findToken("MRN", "[PII_MRN_01]");
   const docketToken = findToken("CASE_DOCKET", "[PII_DOCKET_01]");
   const counselToken = findToken("COUNSEL_JUDGE", "[PII_COUNSEL_01]");

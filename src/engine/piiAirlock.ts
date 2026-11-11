@@ -796,8 +796,14 @@ export function generateStructuredClinicalLegalAnalysis(
   sanitizedText: string,
   vaultEntries: VaultEntry[]
 ): StructuredClinicalLegalAnalysis {
-  const nameToken =
-    vaultEntries.find((v) => v.category === "PATIENT_CLIENT_NAME")?.token ?? "[PII_NAME_01]";
+  const personEntries = vaultEntries.filter((v) => v.category === "PATIENT_CLIENT_NAME");
+  const primaryPerson =
+    personEntries.find(
+      (v) =>
+        !v.token.startsWith("[PROVIDER") &&
+        !/^(?:Dr\.|Prof\.)\s/i.test(v.originalValue)
+    ) ?? personEntries[0];
+  const nameToken = primaryPerson?.token ?? "[PII_NAME_01]";
   const mrnToken =
     vaultEntries.find((v) => v.category === "MRN")?.token ?? "[PII_MRN_01]";
   const docketToken =
