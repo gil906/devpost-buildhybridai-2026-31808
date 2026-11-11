@@ -1,4 +1,4 @@
-![PII-Zero: Zero-Trust Hybrid AI for Sensitive Documents](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/852/822/datas/original.png)
+![PII-Zero: Zero-Trust Hybrid AI for Sensitive Documents](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/853/237/datas/original.png)
 
 ## Why I built this
 
@@ -8,7 +8,7 @@ Running everything on a tiny local model has the opposite problem. On-device **G
 
 Instead of treating on-device AI as just an offline fallback when Wi-Fi drops, **PII-Zero** uses Firebase AI Logic's hybrid modes (`ONLY_ON_DEVICE`, `PREFER_ON_DEVICE`, and `ONLY_IN_CLOUD`) so each model does the job it is actually suited for.
 
-![How PII-Zero Protects Medical & Legal Documents](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/852/826/datas/original.png)
+![How PII-Zero Protects Medical & Legal Documents](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/853/242/datas/original.png)
 
 ## How it works in 3 simple steps
 
@@ -16,7 +16,7 @@ Instead of treating on-device AI as just an offline fallback when Wi-Fi drops, *
 2. **Verify zero leaks before sending:** Right before opening a network request, a cryptographic SHA-256 pre-send check scans the outgoing text and any Q&A question one more time. If even one raw SSN, phone number, or patient name slipped through, the call is blocked on the spot and `0` bytes leave the device.
 3. **Analyze in Cloud Gemini 2.5 Flash and restore locally:** Google Cloud only receives the safe placeholder version, flags drug interactions or contract risks, and returns its answer using those same `[PII_*]` tags. Your browser or phone then swaps the real names back in locally as highlighted pills so you read a normal, clear report.
 
-![Medical Record Workspace with Inline Peek Tooltip and Restored AI Insights](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/852/823/datas/original.png)
+![Medical Record Workspace with Inline Peek Tooltip and Restored AI Insights](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/853/238/datas/original.png)
 
 ---
 
@@ -26,7 +26,7 @@ When I first tested plain `[REDACTED]` bars, multi-person documents fell apart r
 
 Giving each unique person, company, or ID a consistent numbered tag (`Elena Rostova` -> `[PII_NAME_01]`, `Aetheris Robotics GmbH` -> `[PII_CUSTOM_02]`) keeps every relationship intact for Cloud Gemini 2.5 Flash. Even when you type a follow-up question in the **Q&A Assistant** (*"Are there any risky indemnity clauses for Aetheris Robotics GmbH?"*), PII-Zero scrubs your question locally first, queries Cloud AI on anonymized tokens, and restores the real company and executive names on your screen.
 
-![NDA Contract Redacted Cloud View, Local RAM Entity Vault & Q&A Assistant](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/852/824/datas/original.png)
+![NDA Contract Redacted Cloud View, Local RAM Entity Vault & Q&A Assistant](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/853/239/datas/original.png)
 
 ---
 
@@ -38,11 +38,13 @@ Because clinicians and attorneys move between desktop web apps, hospital EHR for
 - **Chrome Side Panel Extension (`chrome-extension/`):** A Manifest V3 extension using `sidePanel`, `contextMenus`, and `scripting`. Highlight text in any web form, right-click to scrub locally in the side panel, and replace the form field with the safe redacted copy in one click.
 - **Android & Galaxy Z Fold7 App (`android/`):** Written in Kotlin with Jetpack Compose, `com.google.firebase:firebase-ai`, and Jetpack WindowManager `FoldingFeature`. On an unfolded Galaxy Z Fold7, it splits cleanly across the hinge (private note on the left screen, restored Gemini review on the right); on a folded phone screen, it switches to a clean single-column view.
 
-![Home Dashboard Overview & Recent Zero-PII Documents](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/852/825/datas/original.png)
+![Native-Scale Smartphone & Unfolded Galaxy Z Fold7 Responsive Layouts](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/853/240/datas/original.png)
 
-![Zero-Trust Cryptographic Audit & Pre-Send Leak Blocker](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/852/827/datas/original.png)
+![Home Dashboard Overview & Recent Zero-PII Documents](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/853/241/datas/original.png)
 
-![Chrome Side Panel Extension and Android Galaxy Z Fold7 App](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/852/828/datas/original.png)
+![Zero-Trust Cryptographic Audit & Pre-Send Leak Blocker](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/853/243/datas/original.png)
+
+![Chrome Side Panel Extension and Android Galaxy Z Fold7 App](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/853/244/datas/original.png)
 
 ---
 
