@@ -1,9 +1,3 @@
-# PII-Zero
-
-**Client-side HIPAA & legal PII airlock built on the Firebase AI Logic Hybrid SDK (Web, Chrome MV3 & Android Foldable)**
-
-![PII-Zero Architecture & Hardware Trust Boundary](https://d112y698adiu2z.cloudfront.net/photos/production/software_photos/005/850/403/datas/original.png)
-
 ## Why I built this
 
 If a resident pastes a hospital discharge summary into a cloud LLM and asks it to *"redact the patient's name and check for drug interactions,"* the HIPAA violation has already happened. The moment raw Patient Health Information crosses the TLS socket to an external endpoint without a Business Associate Agreement, 45 CFR §164.514(b)(2) is broken—no matter what the prompt asks the model to do afterward. Attorneys reviewing M&A disclosure schedules or litigation term sheets run into the exact same wall under FRE Rule 502 and Rule 408.
