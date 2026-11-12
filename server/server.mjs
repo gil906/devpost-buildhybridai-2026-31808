@@ -359,7 +359,6 @@ export function createAirlockServer() {
       sendJson(res, 200, {
         status: "ok",
         service: "piizero-hybrid-airlock",
-        sdk: "firebase/ai@12.4.0",
         hybridModes: ["only_on_device", "prefer_on_device", "only_in_cloud"],
         zeroPiiAirlock: true
       });

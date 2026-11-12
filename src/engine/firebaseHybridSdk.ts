@@ -2,7 +2,7 @@
  * PII-Zero: Official Firebase AI Logic Hybrid Inference SDK Integration
  * Uses firebase/app, firebase/app-check, and firebase/ai (InferenceMode, InferenceSource, GoogleAIBackend)
  */
-import { initializeApp, getApps, deleteApp, SDK_VERSION, type FirebaseApp } from "firebase/app";
+import { initializeApp, getApps, deleteApp, type FirebaseApp } from "firebase/app";
 import {
   initializeAppCheck,
   ReCaptchaEnterpriseProvider,
@@ -30,7 +30,7 @@ import {
   type PiiCategoryId
 } from "./piiAirlock";
 
-export { InferenceMode, InferenceSource, SDK_VERSION };
+export { InferenceMode, InferenceSource };
 
 export interface FirebaseWebConfig {
   apiKey: string;
@@ -82,7 +82,6 @@ export interface HybridPipelineExecutionResult {
   stage2Telemetry: SdkTelemetryEvent;
   stage3Telemetry: SdkTelemetryEvent;
   onDeviceStatus: OnDeviceProbeStatus;
-  firebaseSdkVersion: string;
 }
 
 export function isLiveFirebaseConfigured(config: FirebaseWebConfig): boolean {
@@ -447,8 +446,7 @@ export async function runHybridAirlockPipeline(params: {
     stage1Telemetry,
     stage2Telemetry,
     stage3Telemetry,
-    onDeviceStatus,
-    firebaseSdkVersion: SDK_VERSION
+    onDeviceStatus
   };
 }
 

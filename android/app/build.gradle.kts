@@ -67,8 +67,6 @@ dependencies {
 
     implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
     implementation("com.google.firebase:firebase-ai")
-    implementation("com.google.firebase:firebase-appcheck")
-    implementation("com.google.firebase:firebase-appcheck-debug")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")

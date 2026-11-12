@@ -16,7 +16,6 @@ import {
   Terminal,
   TypingAnimation,
   AnimatedSpan,
-  CodeComparison,
   AndroidMockup
 } from "./components/MagicUiPrimitives";
 import {
@@ -32,8 +31,6 @@ import {
   probeOnDeviceCapability,
   runHybridAirlockPipeline,
   askHybridDocumentQuestion,
-  generateSdkCodeSnippet,
-  isLiveFirebaseConfigured,
   type FirebaseWebConfig,
   type HybridPipelineExecutionResult,
   type OnDeviceProbeStatus,
@@ -62,7 +59,7 @@ import {
   type FirewallActionTask
 } from "./engine/batchAndFirewall";
 
-type SidebarNav = "home" | "document" | "batch" | "firewall" | "history" | "settings" | "help";
+type SidebarNav = "home" | "document" | "batch" | "firewall" | "history" | "help";
 type LeftDocTab = "document" | "redacted" | "audit";
 type RightPanelTab = "insights" | "qa";
 type PillColor = "blue" | "green" | "purple" | "amber";
@@ -311,18 +308,6 @@ interface AuditHistoryEntry {
   whenLabel: string;
 }
 
-const KOTLIN_SDK_SNIPPET = `// Android & Galaxy Z Fold7 — com.google.firebase:firebase-ai
-val scrub = PiiAirlockEngine.scrub(rawClinicalNote, customPolicyTerms)
-check(PiiAirlockEngine.verifyZeroLeak(scrub.sanitizedText, scrub.vault).passed) {
-    "Blocked outbound request: raw patient or client identifier detected"
-}
-
-val cloudModel = Firebase.ai(backend = GenerativeBackend.googleAI())
-    .generativeModel(modelName = "gemini-2.5-flash")
-
-val response = cloudModel.generateContent(scrub.sanitizedText)
-val restoredView = PiiAirlockEngine.rehydrate(response.text.orEmpty(), scrub.vault)`;
-
 function getCategoryColor(cat: PiiCategoryId): PillColor {
   switch (cat) {
     case "PATIENT_CLIENT_NAME":
@@ -496,8 +481,6 @@ export const App: React.FC = () => {
         ? "firewall"
         : rawNav === "history" || rawNav === "vault"
         ? "history"
-        : rawNav === "settings"
-        ? "settings"
         : rawNav === "help" || rawNav === "apps"
         ? "help"
         : "document";
@@ -572,9 +555,8 @@ export const App: React.FC = () => {
   const [manualMaskedTerms, setManualMaskedTerms] = useState<string[]>([]);
 
   const [stage1Mode, setStage1Mode] = useState<InferenceMode>(InferenceMode.ONLY_ON_DEVICE);
-  const [cloudModelName, setCloudModelName] = useState<string>("gemini-2.5-flash");
+  const [cloudModelName] = useState<string>("gemini-2.5-flash");
   const [firebaseConfig] = useState<FirebaseWebConfig>(DEFAULT_DEMO_FIREBASE_CONFIG);
-  const [sdkLang, setSdkLang] = useState<"ts" | "kotlin">("ts");
   const [foldPosture, setFoldPosture] = useState<"unfolded" | "cover">("unfolded");
 
   const [pipelineResult, setPipelineResult] = useState<HybridPipelineExecutionResult | null>(null);
@@ -1327,18 +1309,6 @@ export const App: React.FC = () => {
     );
   };
 
-  const handleSaveFirebaseSettings = () => {
-    void executeAirlock(
-      rawText,
-      customTermsInput,
-      stage1Mode,
-      firebaseConfig,
-      cloudModelName,
-      selectedDocId
-    );
-    setSidebarNav("document");
-  };
-
   const toggleVaultTokenVisibility = (token: string) => {
     setHiddenVaultTokens((prev) => {
       const next = new Set(prev);
@@ -1353,7 +1323,6 @@ export const App: React.FC = () => {
   const analysis = pipelineResult?.analysis;
   const totalMasked = telemetry?.totalDetected ?? 0;
   const shortSha = (pipelineResult?.scrubResult.sanitizedSha256 ?? "").slice(0, 12).toUpperCase();
-  const liveFirebase = isLiveFirebaseConfigured(firebaseConfig);
 
   const primaryPersonEntry = useMemo(() => {
     const persons = vaultEntries.filter((v) => v.category === "PATIENT_CLIENT_NAME");
@@ -1920,7 +1889,7 @@ export const App: React.FC = () => {
               type="button"
               className="navbar-profile-btn"
               title="Gilbert De Leon · Enclave Admin"
-              onClick={() => setSidebarNav("settings")}
+              onClick={() => setSidebarNav("history")}
             >
               <span className="navbar-avatar-circle">GD</span>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
@@ -1978,16 +1947,6 @@ export const App: React.FC = () => {
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
                         <circle cx="12" cy="12" r="9" />
                         <path d="M12 7v5l3 2" />
-                      </svg>
-                    )
-                  },
-                  {
-                    id: "settings" as SidebarNav,
-                    label: "SDK",
-                    compact: "SDK",
-                    icon: (
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
-                        <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" strokeLinecap="round" />
                       </svg>
                     )
                   },
@@ -2514,9 +2473,9 @@ export const App: React.FC = () => {
                     <button
                       type="button"
                       className="footer-link-btn"
-                      onClick={() => setSidebarNav("settings")}
+                      onClick={() => setSidebarNav("history")}
                     >
-                      SDK Snippet &amp; Config →
+                      Audit Receipts →
                     </button>
                   </div>
 
@@ -4027,135 +3986,6 @@ export const App: React.FC = () => {
                 </table>
               </div>
             </section>
-          )}
-
-          {/* ==================== VIEW 4: SETTINGS & FIREBASE HYBRID SDK ==================== */}
-          {sidebarNav === "settings" && (
-            <div className="home-dashboard">
-              <section className="home-activity-card">
-                <div className="section-heading-row" style={{ marginBottom: "14px" }}>
-                  <div>
-                    <h2 className="section-h3">Hybrid Inference Policy &amp; Enclave Isolation</h2>
-                    <p style={{ fontSize: "12.5px", color: "var(--ink-500)", marginTop: "2px" }}>
-                      Configure Stage 1 on-device inference mode and custom local redaction terms. Zero API keys, tokens, or secrets are rendered or editable in the browser GUI.
-                    </p>
-                  </div>
-                  <span className="offline-mode-tag">0 Secrets in GUI</span>
-                </div>
-
-                <div className="kpi-cards-grid" style={{ marginBottom: "14px" }}>
-                  <GlareHover className="kpi-insight-card">
-                    <span className="kpi-card-label mono">GUI Credential Surface</span>
-                    <span className="kpi-card-value" style={{ color: "#059669" }}>0 Keys Exposed</span>
-                    <span className="kpi-card-sub">No API keys or tokens in DOM</span>
-                  </GlareHover>
-                  <GlareHover className="kpi-insight-card">
-                    <span className="kpi-card-label mono">App Check Debug Token</span>
-                    <span className="kpi-card-value">Stripped</span>
-                    <span className="kpi-card-sub">Hard-disabled in web client</span>
-                  </GlareHover>
-                  <GlareHover className="kpi-insight-card">
-                    <span className="kpi-card-label mono">Runtime Binding</span>
-                    <span className="kpi-card-value">{liveFirebase ? "Env-Bound" : "Local Sandbox"}</span>
-                    <span className="kpi-card-sub">Strict origin &amp; App Check</span>
-                  </GlareHover>
-                </div>
-
-                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center", marginBottom: "14px" }}>
-                  <span style={{ fontSize: "13px", fontWeight: 600 }}>Stage 1 Mode (firebase/ai):</span>
-                  <button
-                    type="button"
-                    className={stage1Mode === InferenceMode.ONLY_ON_DEVICE ? "btn-primary-pill" : "btn-outline-pill"}
-                    onClick={() => setStage1Mode(InferenceMode.ONLY_ON_DEVICE)}
-                  >
-                    InferenceMode.ONLY_ON_DEVICE (Gemini Nano)
-                  </button>
-                  <button
-                    type="button"
-                    className={stage1Mode === InferenceMode.PREFER_ON_DEVICE ? "btn-primary-pill" : "btn-outline-pill"}
-                    onClick={() => setStage1Mode(InferenceMode.PREFER_ON_DEVICE)}
-                  >
-                    InferenceMode.PREFER_ON_DEVICE (Airlock Pinned)
-                  </button>
-                </div>
-
-                <div style={{ marginBottom: "14px" }}>
-                  <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, marginBottom: "5px" }}>
-                    Custom Company / Project Codewords to Mask Locally (comma-separated):
-                  </label>
-                  <input
-                    type="text"
-                    className="text-input"
-                    value={customTermsInput}
-                    onChange={(e) => setCustomTermsInput(e.target.value)}
-                  />
-                </div>
-
-                <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                  <InteractiveHoverButton type="button" onClick={handleSaveFirebaseSettings}>
-                    Apply Policy &amp; Re-Analyze
-                  </InteractiveHoverButton>
-                  <input
-                    type="text"
-                    className="text-input mono"
-                    style={{ width: "210px", maxWidth: "100%" }}
-                    value={cloudModelName}
-                    onChange={(e) => setCloudModelName(e.target.value)}
-                    aria-label="Cloud Gemini model name"
-                  />
-                </div>
-              </section>
-
-              <section className="home-activity-card">
-                <div className="section-heading-row" style={{ marginBottom: "12px" }}>
-                  <div>
-                    <h2 className="section-h3">Architecture Diff &amp; Official SDK Integration</h2>
-                    <p style={{ fontSize: "12px", color: "var(--ink-500)", marginTop: "2px" }}>
-                      Why raw cloud SDK calls violate HIPAA/privilege vs. PII-Zero’s 3-stage local-first airlock.
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <button
-                      type="button"
-                      className={sdkLang === "ts" ? "btn-primary-pill" : "btn-outline-pill"}
-                      onClick={() => setSdkLang("ts")}
-                    >
-                      Web (firebase/ai)
-                    </button>
-                    <button
-                      type="button"
-                      className={sdkLang === "kotlin" ? "btn-primary-pill" : "btn-outline-pill"}
-                      onClick={() => setSdkLang("kotlin")}
-                    >
-                      Android (Kotlin)
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ marginBottom: "14px" }}>
-                  <CodeComparison
-                    filename="hybridAirlock.ts"
-                    beforeLines={[
-                      { text: "const cloud = getGenerativeModel(ai, { model: 'gemini-2.5-flash' });" },
-                      { text: "// DANGER: Transmits raw patient SSN, MRN & names to cloud!", kind: "remove" },
-                      { text: "const res = await cloud.generateContent(rawMedicalChart);", kind: "remove" },
-                      { text: "return res.response.text();" }
-                    ]}
-                    afterLines={[
-                      { text: "const nano = getGenerativeModel(ai, { mode: InferenceMode.ONLY_ON_DEVICE });", kind: "add" },
-                      { text: "const { sanitizedText, vault } = await scrubLocally(nano, rawChart);", kind: "add" },
-                      { text: "assertZeroPiiLeak(sanitizedText, vault); // 0 raw PII bytes", kind: "add" },
-                      { text: "const res = await cloud.generateContent(sanitizedText);" },
-                      { text: "return rehydrateInRam(res.response.text(), vault);", kind: "add" }
-                    ]}
-                  />
-                </div>
-
-                <pre className="code-block">
-                  {sdkLang === "ts" ? generateSdkCodeSnippet(stage1Mode, cloudModelName) : KOTLIN_SDK_SNIPPET}
-                </pre>
-              </section>
-            </div>
           )}
 
           {/* ==================== VIEW 5: APPS & SIDE PANEL INTEGRATIONS (MATCHES PICTURE 1 EXACTLY) ==================== */}

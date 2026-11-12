@@ -387,5 +387,7 @@ describe("PII-Zero Hybrid AI Airlock Engine & 18-Category HIPAA/Legal Scrubber",
     expect(appSource).not.toContain("configJsonText");
     expect(appSource).not.toContain("Firebase Web Config JSON");
     expect(appSource).not.toContain("appCheckDebugToken");
+    expect(appSource).not.toContain('label: "SDK"');
+    expect(appSource).not.toContain('sidebarNav === "settings"');
   });
 });
