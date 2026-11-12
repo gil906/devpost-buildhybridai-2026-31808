@@ -1,4 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import {
+  AirlockCanvasBackdrop,
+  BorderBeam,
+  MagicCard,
+  BlurFade,
+  HyperText,
+  NumberTicker,
+  ShimmerButton,
+  HybridAirlockBridge
+} from "./components/MagicUiPrimitives";
 import {
   PII_CATEGORIES,
   CLINICAL_LEGAL_PRESETS,
@@ -417,26 +428,16 @@ function PillMiniIcon({ category }: { category: PiiCategoryId }) {
 function ShieldSparkleLogo() {
   return (
     <svg className="brand-shield" viewBox="0 0 40 40" fill="none" aria-hidden="true">
-      <defs>
-        <linearGradient id="pzShieldGrad" x1="4" y1="3" x2="36" y2="37" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#2563eb" />
-          <stop offset="55%" stopColor="#4f46e5" />
-          <stop offset="100%" stopColor="#7c3aed" />
-        </linearGradient>
-      </defs>
+      <rect x="3" y="3" width="34" height="34" rx="9" fill="#0B1220" />
+      <rect x="3.75" y="3.75" width="32.5" height="32.5" rx="8.25" stroke="#1E293B" strokeWidth="1.5" />
       <path
-        d="M20 3L34 8.6v10.2c0 8.6-5.9 15.9-14 18.2C11.9 34.7 6 27.4 6 18.8V8.6L20 3z"
-        fill="url(#pzShieldGrad)"
+        d="M20 8.2L30 12.2v6.6c0 6.2-4.2 11.4-10 13.1-5.8-1.7-10-6.9-10-13.1v-6.6L20 8.2z"
+        stroke="#10B981"
+        strokeWidth="2"
+        strokeLinejoin="round"
       />
-      <path
-        d="M20 9.2l8.5 3.4v6.2c0 5.4-3.6 10.1-8.5 11.8-4.9-1.7-8.5-6.4-8.5-11.8v-6.2L20 9.2z"
-        fill="#ffffff"
-        fillOpacity="0.16"
-      />
-      <path
-        d="M20 11.5l2.3 5.2 5.2 2.3-5.2 2.3-2.3 5.2-2.3-5.2-5.2-2.3 5.2-2.3 2.3-5.2z"
-        fill="#ffffff"
-      />
+      <rect x="16.5" y="16" width="7" height="7" rx="1.6" fill="#38BDF8" />
+      <path d="M20 12.2v2.2M20 24.6v2.2M13.2 19.5h2.1M24.7 19.5h2.1" stroke="#64748B" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -565,7 +566,13 @@ export const App: React.FC = () => {
   const [qaThread, setQaThread] = useState<QaConversationItem[]>([]);
   const [questionDraft, setQuestionDraft] = useState<string>("");
   const [isAskingQa, setIsAskingQa] = useState<boolean>(false);
+  const [askFocused, setAskFocused] = useState<boolean>(false);
+  const [scanPulseKey, setScanPulseKey] = useState<number>(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setScanPulseKey((k) => k + 1);
+  }, [selectedDocId, stage1Mode, routingPolicy, manualMaskedTerms.length]);
 
   const [uploadModalOpen, setUploadModalOpen] = useState<boolean>(false);
   const [pasteDraftTitle, setPasteDraftTitle] = useState<string>("Client Document.pdf");
@@ -1650,31 +1657,27 @@ export const App: React.FC = () => {
         onMouseUp={mode === "raw" ? handleCaptureDocumentSelection : undefined}
         onKeyUp={mode === "raw" ? handleCaptureDocumentSelection : undefined}
       >
+        <div key={scanPulseKey} className="enclave-scanline" aria-hidden="true" />
         {currentDocMeta.showInstHeader && (
           <div className="doc-inst-header">
-            {currentDocMeta.isLegal ? (
-              <div className="med-cross-icon" aria-hidden="true">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <path d="M14 2v6h6M9 13h6M9 17h4" />
+            <div className="doc-seal-box" aria-hidden="true">
+              {currentDocMeta.isLegal ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                  <path d="M12 3v18M5 7h14M7 7l-3 6h6l-3-6zm10 0l-3 6h6l-3-6zM8 21h8" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-              </div>
-            ) : (
-              <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-                <defs>
-                  <linearGradient id="medCrossBlue" x1="6" y1="6" x2="34" y2="34" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="#60a5fa" />
-                    <stop offset="100%" stopColor="#2563eb" />
-                  </linearGradient>
-                </defs>
-                <rect x="15" y="4" width="10" height="32" rx="3.2" fill="url(#medCrossBlue)" />
-                <rect x="4" y="15" width="32" height="10" rx="3.2" fill="url(#medCrossBlue)" />
-              </svg>
-            )}
-            <div>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                  <path d="M22 12h-4l-3 7L9 5l-3 7H2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div className="doc-inst-name">{currentDocMeta.instTitle}</div>
               <div className="doc-inst-sub">{currentDocMeta.instSub}</div>
             </div>
+            <span className="doc-enclave-stamp mono hide-xs">
+              {mode === "raw" ? "LOCAL RAM" : "SCRUBBED"}
+            </span>
           </div>
         )}
 
@@ -1724,47 +1727,11 @@ export const App: React.FC = () => {
 
   return (
     <>
-      {/* Smooth Atmospheric Mountain-Dawn SVG Backdrop */}
-      <div className="mountain-backdrop" aria-hidden="true">
-        <svg viewBox="0 0 1600 440" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="dawnGlow" x1="0.45" y1="0" x2="0.95" y2="0.85">
-              <stop offset="0%" stopColor="#fde6d2" stopOpacity="0.88" />
-              <stop offset="55%" stopColor="#e8e6f6" stopOpacity="0.45" />
-              <stop offset="100%" stopColor="#dce8f8" stopOpacity="0" />
-            </linearGradient>
-            <linearGradient id="mtnFar" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#8da5cc" stopOpacity="0.68" />
-              <stop offset="100%" stopColor="#dbe6f6" stopOpacity="0.1" />
-            </linearGradient>
-            <linearGradient id="mtnMid" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#6984b3" stopOpacity="0.72" />
-              <stop offset="65%" stopColor="#93abd2" stopOpacity="0.42" />
-              <stop offset="100%" stopColor="#d7e4f5" stopOpacity="0.06" />
-            </linearGradient>
-            <linearGradient id="mtnNear" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#5673a4" stopOpacity="0.58" />
-              <stop offset="100%" stopColor="#cad9ef" stopOpacity="0.08" />
-            </linearGradient>
-          </defs>
-          <ellipse cx="1160" cy="65" rx="460" ry="175" fill="url(#dawnGlow)" />
-          <path
-            d="M160,440 C340,295 510,130 675,126 C835,122 930,228 1085,172 C1225,120 1355,24 1495,38 C1550,44 1580,72 1600,92 L1600,440 Z"
-            fill="url(#mtnFar)"
-          />
-          <path
-            d="M520,440 C695,308 855,154 1015,146 C1155,139 1245,232 1375,186 C1475,150 1545,68 1600,58 L1600,440 Z"
-            fill="url(#mtnMid)"
-          />
-          <path
-            d="M840,440 C995,332 1145,208 1295,204 C1420,200 1515,138 1600,114 L1600,440 Z"
-            fill="url(#mtnNear)"
-          />
-        </svg>
-      </div>
+      {/* Magic UI DotPattern + NoiseTexture Precision Canvas Backdrop */}
+      <AirlockCanvasBackdrop />
 
       <div className="pz-app">
-        {/* Left Frosted Sidebar with Pine-Mountain Footer */}
+        {/* Architectural Navigation Rail / Foldable Top Header */}
         <aside className="pz-sidebar" aria-label="Primary navigation">
           <div className="sidebar-top">
             <div className="sidebar-brand-row">
@@ -1775,150 +1742,168 @@ export const App: React.FC = () => {
                 onClick={() => setSidebarNav((prev) => (prev === "document" ? "home" : "document"))}
               >
                 <ShieldSparkleLogo />
-                <span className="brand-wordmark">PII-Zero</span>
+                <div className="brand-text-group">
+                  <span className="brand-wordmark">PII-Zero</span>
+                  <span className="brand-subtag mono">HYBRID AIRLOCK</span>
+                </div>
               </button>
 
               <div className="mobile-trust-pill" title="Pre-send gatekeeper verified 0 raw PII bytes leave your device">
-                <span className="live-green-dot" />
-                <span>0 PII Sent</span>
-                <span className="shield-verified-icon" aria-hidden="true">
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8">
-                    <path d="M9 12l2 2 4-4" />
-                  </svg>
-                </span>
+                <span className="live-emerald-dot" />
+                <span className="mono">0 B PII EGRESS</span>
               </div>
             </div>
 
             <nav className="sidebar-nav">
-              <button
-                type="button"
-                className={"sidebar-link " + (sidebarNav === "document" ? "active" : "")}
-                onClick={() => setSidebarNav("document")}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <path d="M14 2v6h6M8 13h8M8 17h5" />
-                </svg>
-                <span>Document</span>
-              </button>
-
-              <button
-                type="button"
-                className={"sidebar-link " + (sidebarNav === "batch" ? "active" : "")}
-                onClick={() => setSidebarNav("batch")}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="3" y="4" width="14" height="14" rx="2" />
-                  <path d="M7 20h12a2 2 0 0 0 2-2V8" />
-                  <path d="M7 9h6M7 13h4" />
-                </svg>
-                <span className="hide-compact">Batch Studio</span>
-                <span className="show-compact">Batch</span>
-              </button>
-
-              <button
-                type="button"
-                className={"sidebar-link " + (sidebarNav === "firewall" ? "active" : "")}
-                onClick={() => setSidebarNav("firewall")}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
-                  <path d="M9 12l2 2 4-4" />
-                </svg>
-                <span className="hide-compact">Prompt Firewall</span>
-                <span className="show-compact">Firewall</span>
-              </button>
-
-              <button
-                type="button"
-                className={"sidebar-link " + (sidebarNav === "history" ? "active" : "")}
-                onClick={() => setSidebarNav("history")}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 7v5l3 2" />
-                </svg>
-                <span>History</span>
-              </button>
-
-              <button
-                type="button"
-                className={"sidebar-link " + (sidebarNav === "settings" ? "active" : "")}
-                onClick={() => setSidebarNav("settings")}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1-.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1z" />
-                </svg>
-                <span>Settings</span>
-              </button>
-
-              <button
-                type="button"
-                className={"sidebar-link " + (sidebarNav === "help" ? "active" : "")}
-                onClick={() => setSidebarNav("help")}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.6-2.5 2-2.5 3.8M12 17h.01" />
-                </svg>
-                <span>Help</span>
-              </button>
+              {(
+                [
+                  {
+                    id: "document" as SidebarNav,
+                    label: "Document",
+                    compact: "Document",
+                    icon: (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <path d="M14 2v6h6M8 13h8M8 17h5" />
+                      </svg>
+                    )
+                  },
+                  {
+                    id: "batch" as SidebarNav,
+                    label: "Batch Studio",
+                    compact: "Batch",
+                    icon: (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                        <rect x="3" y="4" width="14" height="14" rx="2" />
+                        <path d="M7 20h12a2 2 0 0 0 2-2V8" />
+                        <path d="M7 9h6M7 13h4" />
+                      </svg>
+                    )
+                  },
+                  {
+                    id: "firewall" as SidebarNav,
+                    label: "Prompt Firewall",
+                    compact: "Firewall",
+                    icon: (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                        <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
+                        <path d="M9 12l2 2 4-4" />
+                      </svg>
+                    )
+                  },
+                  {
+                    id: "history" as SidebarNav,
+                    label: "History",
+                    compact: "Audit Log",
+                    icon: (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M12 7v5l3 2" />
+                      </svg>
+                    )
+                  },
+                  {
+                    id: "settings" as SidebarNav,
+                    label: "Settings",
+                    compact: "SDK",
+                    icon: (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                        <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" strokeLinecap="round" />
+                      </svg>
+                    )
+                  },
+                  {
+                    id: "help" as SidebarNav,
+                    label: "Help",
+                    compact: "Apps",
+                    icon: (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                        <rect x="5" y="2" width="14" height="20" rx="2.5" />
+                        <path d="M12 18h.01" strokeLinecap="round" />
+                      </svg>
+                    )
+                  }
+                ] as const
+              ).map((navItem) => {
+                const isActive = sidebarNav === navItem.id;
+                return (
+                  <button
+                    key={navItem.id}
+                    type="button"
+                    className={"sidebar-link " + (isActive ? "active" : "")}
+                    onClick={() => setSidebarNav(navItem.id)}
+                  >
+                    {isActive && (
+                      <motion.span
+                        layoutId="pzActiveSidebarPill"
+                        className="sidebar-active-bg"
+                        transition={{ type: "spring", stiffness: 460, damping: 36 }}
+                      />
+                    )}
+                    <span className="sidebar-link-inner">
+                      {navItem.icon}
+                      <span className="hide-compact">{navItem.label}</span>
+                      <span className="show-compact">{navItem.compact}</span>
+                    </span>
+                  </button>
+                );
+              })}
             </nav>
           </div>
 
-          <svg className="sidebar-pine-art" viewBox="0 0 200 250" preserveAspectRatio="none" aria-hidden="true">
-            <path d="M0,145 C52,118 96,95 148,125 C172,138 188,126 200,118 L200,250 L0,250 Z" fill="#c7d8f0" opacity="0.72" />
-            <path d="M0,178 C64,148 122,162 200,142 L200,250 L0,250 Z" fill="#adc4e5" opacity="0.82" />
-            <g fill="#5b7fb2" opacity="0.74">
-              <polygon points="18,92 4,122 32,122" />
-              <polygon points="18,108 1,144 35,144" />
-              <polygon points="18,126 -3,168 39,168" />
-              <polygon points="18,146 -6,194 42,194" />
-              <polygon points="46,116 34,142 58,142" />
-              <polygon points="46,132 30,164 62,164" />
-              <polygon points="46,150 26,190 66,190" />
-              <polygon points="74,134 64,156 84,156" />
-              <polygon points="74,148 60,176 88,176" />
-              <polygon points="74,164 57,196 91,196" />
-            </g>
-            <path d="M0,196 C55,180 125,194 200,182 L200,250 L0,250 Z" fill="#ceddf2" opacity="0.88" />
-          </svg>
-
           <div className="sidebar-bottom">
-            <div className="sidebar-motto">
-              Your Privacy.
-              <br />
-              Our Priority.
+            <div className="sidebar-enclave-card">
+              <div className="sidebar-enclave-row">
+                <span className="live-emerald-dot" />
+                <span className="mono">ZERO-TRUST ENCLAVE</span>
+              </div>
+              <div className="sidebar-enclave-hash mono">
+                SHA <HyperText text={`#${shortSha || "VERIFIED"}`} />
+              </div>
+              <div className="sidebar-motto">
+                RAM-pinned local scrubbing prior to cloud inference.
+              </div>
             </div>
           </div>
         </aside>
 
         {/* Main Content Canvas */}
         <div className="pz-main">
-          {/* Top Contextual Bar + Status Badge */}
+          {/* Unified Command & Live Airlock Telemetry Deck */}
           <header className="pz-topbar">
             {sidebarNav === "batch" ? (
               <div className="doc-tabs-row" role="tablist" aria-label="Batch packets">
-                {BATCH_PACKETS.map((pkt) => (
-                  <button
-                    key={pkt.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={selectedPacketId === pkt.id}
-                    className={"doc-file-pill " + (selectedPacketId === pkt.id ? "active" : "")}
-                    onClick={() => {
-                      setSelectedPacketId(pkt.id);
-                      setSelectedBatchFileId(pkt.files[0].id);
-                      setBatchHighlightToken(null);
-                    }}
-                  >
-                    <span className={`file-type-icon ${pkt.domain === "legal" ? "docx" : "pdf"}`}>
-                      {pkt.files.length}
-                    </span>
-                    <span>{pkt.name}</span>
-                  </button>
-                ))}
+                {BATCH_PACKETS.map((pkt) => {
+                  const isAct = selectedPacketId === pkt.id;
+                  return (
+                    <button
+                      key={pkt.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isAct}
+                      className={"doc-file-pill " + (isAct ? "active" : "")}
+                      onClick={() => {
+                        setSelectedPacketId(pkt.id);
+                        setSelectedBatchFileId(pkt.files[0].id);
+                        setBatchHighlightToken(null);
+                      }}
+                    >
+                      {isAct && (
+                        <motion.span
+                          layoutId="pzDocSwitchIndicator"
+                          className="doc-pill-active-bg"
+                          transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                        />
+                      )}
+                      <span className="doc-pill-fg">
+                        <span className={`file-type-icon ${pkt.domain === "legal" ? "docx" : "pdf"}`}>
+                          {pkt.files.length}
+                        </span>
+                        <span>{pkt.name}</span>
+                      </span>
+                    </button>
+                  );
+                })}
                 <input
                   ref={batchFileInputRef}
                   type="file"
@@ -1927,30 +1912,41 @@ export const App: React.FC = () => {
                   style={{ display: "none" }}
                   onChange={(e) => void handleAddFilesToBatch(e)}
                 />
-                <button
+                <ShimmerButton
                   type="button"
-                  className="upload-pill-btn"
+                  className="upload-shimmer-trigger"
                   onClick={() => batchFileInputRef.current?.click()}
                 >
-                  <span style={{ fontSize: "16px", fontWeight: 500 }}>+</span>
-                  <span>Add Files to Packet</span>
-                </button>
+                  <span>+ Add Files</span>
+                </ShimmerButton>
               </div>
             ) : sidebarNav === "firewall" ? (
               <div className="doc-tabs-row" role="tablist" aria-label="Prompt firewall scenarios">
-                {FIREWALL_SCENARIOS.map((sc) => (
-                  <button
-                    key={sc.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={selectedScenarioId === sc.id}
-                    className={"doc-file-pill " + (selectedScenarioId === sc.id ? "active" : "")}
-                    onClick={() => handleSelectFirewallScenario(sc.id)}
-                  >
-                    <span className="file-type-icon pdf">AI</span>
-                    <span>{sc.label}</span>
-                  </button>
-                ))}
+                {FIREWALL_SCENARIOS.map((sc) => {
+                  const isAct = selectedScenarioId === sc.id;
+                  return (
+                    <button
+                      key={sc.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isAct}
+                      className={"doc-file-pill " + (isAct ? "active" : "")}
+                      onClick={() => handleSelectFirewallScenario(sc.id)}
+                    >
+                      {isAct && (
+                        <motion.span
+                          layoutId="pzDocSwitchIndicator"
+                          className="doc-pill-active-bg"
+                          transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                        />
+                      )}
+                      <span className="doc-pill-fg">
+                        <span className="file-type-icon fw">FW</span>
+                        <span>{sc.label}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             ) : (
               <div className="doc-tabs-row" role="tablist" aria-label="Open documents">
@@ -1977,172 +1973,137 @@ export const App: React.FC = () => {
                         }
                       }}
                     >
-                      <span className={`file-type-icon ${meta.ext}`}>
-                        {meta.ext === "docx" ? "W" : "PDF"}
-                      </span>
-                      <span>{meta.fileName}</span>
-                      {openPresetIds.length > 1 && (
-                        <span
-                          className="doc-pill-close"
-                          title="Close tab"
-                          onClick={(e) => handleCloseDocTab(e, docId)}
-                        >
-                          ×
-                        </span>
+                      {isActive && (
+                        <motion.span
+                          layoutId="pzDocSwitchIndicator"
+                          className="doc-pill-active-bg"
+                          transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                        />
                       )}
+                      <span className="doc-pill-fg">
+                        <span className={`file-type-icon ${meta.ext}`}>
+                          {meta.ext === "docx" ? "DOC" : "PDF"}
+                        </span>
+                        <span>{meta.fileName}</span>
+                        {openPresetIds.length > 1 && (
+                          <span
+                            className="doc-pill-close"
+                            title="Close tab"
+                            onClick={(e) => handleCloseDocTab(e, docId)}
+                          >
+                            ×
+                          </span>
+                        )}
+                      </span>
                     </button>
                   );
                 })}
 
-                <button
+                    <ShimmerButton
                   type="button"
-                  className="upload-pill-btn"
+                  className="upload-shimmer-trigger"
                   onClick={() => setUploadModalOpen(true)}
                 >
-                  <span style={{ fontSize: "16px", fontWeight: 500 }}>+</span>
-                  <span className="hide-xs">Upload / Paste</span>
-                  <span className="show-xs">Upload</span>
-                </button>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+                  </svg>
+                  <span className="hide-compact">Load Doc</span>
+                  <span className="show-compact">Load</span>
+                </ShimmerButton>
               </div>
             )}
 
-            <div className="scrubber-status-pill" title="Pre-send gatekeeper verified 0 raw PII bytes leave your device">
-              <span className="live-green-dot" />
-              <span>
-                <span className="hide-compact">On-Device Scrubber Active • </span>
-                <strong>0 PII Sent to Cloud</strong>
-              </span>
-              <span className="shield-verified-icon" aria-hidden="true">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6">
-                  <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
-                  <path d="M9 12l2 2 4-4" />
-                </svg>
-              </span>
-            </div>
+            <HybridAirlockBridge
+              totalMasked={totalMasked}
+              isRunning={isRunning}
+              isAirgapped={routingPolicy === "airgapped_local_only"}
+              liveFirebase={liveFirebase}
+              isOpen={hybridInspectorOpen}
+              shortSha={shortSha}
+              onToggle={() => setHybridInspectorOpen((v) => !v)}
+            />
           </header>
 
-          {/* Centered Two-Stage Hybrid AI Pipeline Strip (Interactive Inspector Toggle) */}
-          <div className="hybrid-pipeline-row">
-            <button
-              type="button"
-              className={"hybrid-pipeline-pill interactive" + (hybridInspectorOpen ? " open" : "")}
-              aria-expanded={hybridInspectorOpen}
-              aria-label="Hybrid AI execution summary and routing policy"
-              onClick={() => setHybridInspectorOpen((v) => !v)}
-              title="Click to inspect or switch Firebase AI Logic hybrid routing mode"
-            >
-              <span className="pipeline-step">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" style={{ flexShrink: 0 }}>
-                  <rect x="3" y="4" width="18" height="12" rx="2" />
-                  <path d="M2 20h20" />
-                </svg>
-                <span className="hide-xs">
-                  On-Device AI: <strong>{isRunning ? "Scanning…" : `${totalMasked} PII Entities Masked Locally`}</strong>
-                </span>
-                <span className="show-xs">
-                  On-Device: <strong>{isRunning ? "Scanning…" : `${totalMasked} Masked`}</strong>
-                </span>
-              </span>
+          {/* Animated Collapsible Firebase AI Logic Hybrid Routing & Runtime Telemetry Drawer */}
+          <AnimatePresence initial={false}>
+            {hybridInspectorOpen && (
+              <motion.section
+                key="hybrid-inspector"
+                className="hybrid-inspector-drawer"
+                aria-label="Firebase AI Logic Hybrid Routing Controls"
+                initial={{ height: 0, opacity: 0, y: -6 }}
+                animate={{ height: "auto", opacity: 1, y: 0 }}
+                exit={{ height: 0, opacity: 0, y: -6 }}
+                transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <BorderBeam size={84} duration={7} />
+                <div className="hybrid-inspector-inner">
+                  <div className="hybrid-inspector-top">
+                    <div className="hybrid-mode-seg" role="radiogroup" aria-label="Firebase AI Logic routing policy">
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={routingPolicy === "hybrid_cloud"}
+                        className={"seg-pill" + (routingPolicy === "hybrid_cloud" ? " active" : "")}
+                        onClick={() => handleSelectRoutingPolicy("hybrid_cloud")}
+                      >
+                        Hybrid (Nano Scrub → Gemini 2.5 Flash)
+                      </button>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={routingPolicy === "prefer_on_device"}
+                        className={"seg-pill" + (routingPolicy === "prefer_on_device" ? " active" : "")}
+                        onClick={() => handleSelectRoutingPolicy("prefer_on_device")}
+                      >
+                        PREFER_ON_DEVICE Airlock
+                      </button>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={routingPolicy === "airgapped_local_only"}
+                        className={"seg-pill" + (routingPolicy === "airgapped_local_only" ? " active" : "")}
+                        onClick={() => handleSelectRoutingPolicy("airgapped_local_only")}
+                      >
+                        Offline Air-Gapped (100% Local)
+                      </button>
+                    </div>
 
-              <span className="pipeline-arrow" aria-hidden="true">
-                →
-              </span>
+                    <button
+                      type="button"
+                      className="footer-link-btn"
+                      onClick={() => setSidebarNav("settings")}
+                    >
+                      SDK Snippet &amp; Config →
+                    </button>
+                  </div>
 
-              <span className="pipeline-step cloud">
-                <span className="pipeline-cloud-badge" aria-hidden="true">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M18.4 10.2A6.5 6.5 0 0 0 6 8.8 5 5 0 0 0 6.5 18.8h11.4a4.3 4.3 0 0 0 .5-8.6z" />
-                  </svg>
-                </span>
-                {routingPolicy === "airgapped_local_only" ? (
-                  <>
-                    <span className="hide-xs">
-                      Offline Mode: <strong>100% On-Device (0 Network)</strong>
+                  <div className="hybrid-telemetry-chips">
+                    <span className="telemetry-chip">
+                      <strong>Stage 1 (firebase/ai):</strong>{" "}
+                      <span className="mono">
+                        {stage1Mode === InferenceMode.ONLY_ON_DEVICE ? "ONLY_ON_DEVICE" : "PREFER_ON_DEVICE"}
+                      </span>{" "}
+                      ·{" "}
+                      {onDeviceProbe?.chromePromptApiDetected
+                        ? `Gemini Nano (${onDeviceProbe.availability})`
+                        : "18-Rule HIPAA Enclave + Nano Bridge"}
                     </span>
-                    <span className="show-xs">
-                      Offline: <strong>Local Only</strong>
+                    <span className="telemetry-chip">
+                      <strong>Stage 2 Gatekeeper:</strong> 0 Raw PII Bytes · SHA-256{" "}
+                      <HyperText className="mono" text={`#${shortSha || "VERIFIED"}`} />
                     </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="hide-xs">
-                      Cloud AI: <strong>Analyzed Safely{liveFirebase ? " (Live Firebase)" : ""}</strong>
+                    <span className="telemetry-chip">
+                      <strong>Stage 3:</strong>{" "}
+                      {routingPolicy === "airgapped_local_only"
+                        ? "Disabled (Air-Gapped Local Summary)"
+                        : `ONLY_IN_CLOUD (${cloudModelName} + App Check)`}
                     </span>
-                    <span className="show-xs">
-                      Cloud AI: <strong>Analyzed Safely</strong>
-                    </span>
-                  </>
-                )}
-                <span className="pipeline-caret" aria-hidden="true">
-                  {hybridInspectorOpen ? "▴" : "▾"}
-                </span>
-              </span>
-            </button>
-          </div>
-
-          {/* Collapsible Firebase AI Logic Hybrid Routing & Runtime Telemetry Drawer */}
-          {hybridInspectorOpen && (
-            <section className="hybrid-inspector-drawer" aria-label="Firebase AI Logic Hybrid Routing Controls">
-              <div className="hybrid-inspector-top">
-                <div className="hybrid-mode-seg" role="radiogroup" aria-label="Firebase AI Logic routing policy">
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={routingPolicy === "hybrid_cloud"}
-                    className={"seg-pill" + (routingPolicy === "hybrid_cloud" ? " active" : "")}
-                    onClick={() => handleSelectRoutingPolicy("hybrid_cloud")}
-                  >
-                    Hybrid (Nano Scrub → Gemini 2.5 Flash)
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={routingPolicy === "prefer_on_device"}
-                    className={"seg-pill" + (routingPolicy === "prefer_on_device" ? " active" : "")}
-                    onClick={() => handleSelectRoutingPolicy("prefer_on_device")}
-                  >
-                    PREFER_ON_DEVICE Airlock
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={routingPolicy === "airgapped_local_only"}
-                    className={"seg-pill" + (routingPolicy === "airgapped_local_only" ? " active" : "")}
-                    onClick={() => handleSelectRoutingPolicy("airgapped_local_only")}
-                  >
-                    Offline Air-Gapped (100% Local)
-                  </button>
+                  </div>
                 </div>
-
-                <button
-                  type="button"
-                  className="footer-link-btn"
-                  onClick={() => setSidebarNav("settings")}
-                >
-                  SDK Snippet &amp; Config ›
-                </button>
-              </div>
-
-              <div className="hybrid-telemetry-chips">
-                <span className="telemetry-chip">
-                  <strong>Stage 1 (firebase/ai):</strong>{" "}
-                  {stage1Mode === InferenceMode.ONLY_ON_DEVICE ? "ONLY_ON_DEVICE" : "PREFER_ON_DEVICE"} ·{" "}
-                  {onDeviceProbe?.chromePromptApiDetected
-                    ? `Gemini Nano (${onDeviceProbe.availability})`
-                    : "18-Rule HIPAA Enclave + Nano Bridge"}
-                </span>
-                <span className="telemetry-chip">
-                  <strong>Stage 2 Gatekeeper:</strong> 0 Raw PII Bytes · SHA-256 #{shortSha || "VERIFIED"}
-                </span>
-                <span className="telemetry-chip">
-                  <strong>Stage 3:</strong>{" "}
-                  {routingPolicy === "airgapped_local_only"
-                    ? "Disabled (Air-Gapped Local Summary)"
-                    : `ONLY_IN_CLOUD (${cloudModelName} + App Check)`}
-                </span>
-              </div>
-            </section>
-          )}
+              </motion.section>
+            )}
+          </AnimatePresence>
 
           {/* Pre-Send Leak Blocker Alert Banner (when simulated or triggered) */}
           {simulatedLeakAlert && (
@@ -2165,7 +2126,7 @@ export const App: React.FC = () => {
           {sidebarNav === "document" && (
             <main className="workspace-split">
               {/* LEFT PANEL: Document / Redacted Version + Vault / Privacy Audit */}
-              <section className="glass-panel" aria-label="Document and local redaction proof">
+              <MagicCard className="glass-panel" aria-label="Document and local redaction proof">
                 <div className="card-tabbar">
                   <div className="card-tabs" role="tablist">
                     <button
@@ -2175,11 +2136,18 @@ export const App: React.FC = () => {
                       className={"card-tab " + (leftTab === "document" ? "active" : "")}
                       onClick={() => setLeftTab("document")}
                     >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                         <path d="M14 2v6h6M8 13h8M8 17h5" />
                       </svg>
-                      <span>Document</span>
+                      <span>Source Doc</span>
+                      {leftTab === "document" && (
+                        <motion.span
+                          layoutId="pzLeftPanelTabLine"
+                          className="card-tab-indicator"
+                          transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                        />
+                      )}
                     </button>
 
                     <button
@@ -2189,12 +2157,19 @@ export const App: React.FC = () => {
                       className={"card-tab " + (leftTab === "redacted" ? "active" : "")}
                       onClick={() => setLeftTab("redacted")}
                     >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
-                        <circle cx="12" cy="12" r="3" />
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="4" y="11" width="16" height="10" rx="2" />
+                        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                       </svg>
-                      <span className="hide-compact">Redacted Version</span>
+                      <span className="hide-compact">Redacted Payload</span>
                       <span className="show-compact">Redacted</span>
+                      {leftTab === "redacted" && (
+                        <motion.span
+                          layoutId="pzLeftPanelTabLine"
+                          className="card-tab-indicator"
+                          transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                        />
+                      )}
                     </button>
 
                     <button
@@ -2204,12 +2179,19 @@ export const App: React.FC = () => {
                       className={"card-tab " + (leftTab === "audit" ? "active" : "")}
                       onClick={() => setLeftTab("audit")}
                     >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
                         <path d="M9 12l2 2 4-4" />
                       </svg>
-                      <span className="hide-compact">Privacy Audit</span>
+                      <span className="hide-compact">Crypto Audit</span>
                       <span className="show-compact">Audit</span>
+                      {leftTab === "audit" && (
+                        <motion.span
+                          layoutId="pzLeftPanelTabLine"
+                          className="card-tab-indicator"
+                          transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                        />
+                      )}
                     </button>
                   </div>
 
@@ -2277,22 +2259,34 @@ export const App: React.FC = () => {
                     )}
 
                     {peekEnabled && activePeekEntry && (
-                      <div className="mobile-peek-bar" role="status">
+                      <motion.div
+                        key={activePeekEntry.token}
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.18 }}
+                        className="mobile-peek-bar"
+                        role="status"
+                      >
+                        <span className="mobile-peek-badge mono">VAULT</span>
                         <span className="mobile-peek-text">
                           <strong>{maskDisplayValue(activePeekEntry, !hiddenVaultTokens.has(activePeekEntry.token))}</strong>
-                          {" → sent to cloud as "}
-                          <code className="mobile-peek-token">{activePeekEntry.token}</code>
+                          <svg width="14" height="10" viewBox="0 0 16 10" fill="none" stroke="#64748b" strokeWidth="1.6" aria-hidden="true" style={{ flexShrink: 0 }}>
+                            <path d="M1 5h13M10.5 1.5L14 5l-3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          <HyperText className="mobile-peek-token" text={activePeekEntry.token} duration={280} />
                         </span>
-                        <span className="mobile-peek-hint">Tap any pill</span>
-                      </div>
+                        <span className="mobile-peek-hint mono">TAP TAG</span>
+                      </motion.div>
                     )}
-                    {renderStructuredSheet("raw")}
+                    <BlurFade key={`raw-${selectedDocId}`} duration={0.22} offset={4}>
+                      {renderStructuredSheet("raw")}
+                    </BlurFade>
                   </div>
                 )}
 
                 {/* SUB-TAB B: Redacted Version Sent to Cloud + Redaction Strategy + Local Entity Vault */}
                 {leftTab === "redacted" && (
-                  <div className="doc-sheet-wrap">
+                  <BlurFade key={`redacted-${selectedDocId}-${redactionStrategy}`} className="doc-sheet-wrap" duration={0.22} offset={4}>
                     <div className="redaction-strategy-bar">
                       <div className="strategy-seg" role="radiogroup" aria-label="Redacted output mode">
                         <button
@@ -2472,12 +2466,12 @@ export const App: React.FC = () => {
                         })}
                       </div>
                     </div>
-                  </div>
+                  </BlurFade>
                 )}
 
                 {/* SUB-TAB C: Cryptographic Privacy Audit & Leak Blocker Proof */}
                 {leftTab === "audit" && (
-                  <div className="doc-sheet-wrap" style={{ overflowY: "auto" }}>
+                  <BlurFade key={`audit-${selectedDocId}`} className="doc-sheet-wrap" style={{ overflowY: "auto" }} duration={0.22} offset={4}>
                     <div className="doc-paper" style={{ maxHeight: "none" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
                         <div>
@@ -2553,14 +2547,14 @@ export const App: React.FC = () => {
                         </table>
                       </div>
                     </div>
-                  </div>
+                  </BlurFade>
                 )}
 
                 <div className="card-footer-strip">
                   <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-                    <span className="shield-verified-icon" aria-hidden="true">✓</span>
+                    <span className="live-emerald-dot" aria-hidden="true" />
                     <span>
-                      <strong>{totalMasked} PII entities</strong> were masked locally before sending to cloud
+                      <strong><NumberTicker value={totalMasked} /> PII entities</strong> masked in RAM · <span className="mono">0 B</span> cloud egress
                     </span>
                   </span>
 
@@ -2575,17 +2569,17 @@ export const App: React.FC = () => {
                   >
                     <span>
                       {leftTab === "document"
-                        ? "View Details ›"
+                        ? "Inspect Payload →"
                         : leftTab === "redacted"
-                        ? "Privacy Audit ›"
-                        : "Back to Document ›"}
+                        ? "Crypto Audit →"
+                        : "Source Doc →"}
                     </span>
                   </button>
                 </div>
-              </section>
+              </MagicCard>
 
               {/* RIGHT PANEL: AI Insights + Interactive Q&A Assistant */}
-              <section className="glass-panel" aria-label="AI insights and document Q&A">
+              <MagicCard className="glass-panel" aria-label="AI insights and document Q&A">
                 <div className="card-tabbar">
                   <div className="card-tabs" role="tablist">
                     <button
@@ -2595,8 +2589,17 @@ export const App: React.FC = () => {
                       className={"card-tab " + (rightTab === "insights" ? "active" : "")}
                       onClick={() => setRightTab("insights")}
                     >
-                      <span style={{ color: "#2563eb" }}>✦</span>
-                      <span>AI Insights</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 12h4l3-7 4 14 3-7h4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <span>Briefing</span>
+                      {rightTab === "insights" && (
+                        <motion.span
+                          layoutId="pzRightPanelTabLine"
+                          className="card-tab-indicator"
+                          transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                        />
+                      )}
                     </button>
 
                     <button
@@ -2606,38 +2609,58 @@ export const App: React.FC = () => {
                       className={"card-tab " + (rightTab === "qa" ? "active" : "")}
                       onClick={() => setRightTab("qa")}
                     >
-                      <span style={{ color: "#7c3aed" }}>✦</span>
-                      <span className="hide-compact">Q&amp;A Assistant</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M8 9l3 3-3 3M13 15h3" strokeLinecap="round" strokeLinejoin="round" />
+                        <rect x="3" y="4" width="18" height="16" rx="2.5" />
+                      </svg>
+                      <span className="hide-compact">Ask Q&amp;A</span>
                       <span className="show-compact">Q&amp;A</span>
+                      {rightTab === "qa" && (
+                        <motion.span
+                          layoutId="pzRightPanelTabLine"
+                          className="card-tab-indicator"
+                          transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                        />
+                      )}
                     </button>
                   </div>
 
                   <div className="tab-controls-right">
-                    <button
-                      type="button"
-                      className="btn-outline-pill"
-                      style={{ height: "26px", fontSize: "11px", padding: "0 9px", whiteSpace: "nowrap" }}
-                      onClick={() => setRehydrateRight((v) => !v)}
-                      title="Toggle between locally restored names and raw tokens returned by Cloud AI"
-                    >
-                      <span className="hide-compact">{rehydrateRight ? "Restored Names" : "Cloud Tokens"}</span>
-                      <span className="show-compact">{rehydrateRight ? "Restored" : "Tokens"}</span>
-                    </button>
+                    <div className="rehydrate-seg" role="group" aria-label="Entity display mode">
+                      <button
+                        type="button"
+                        className={"rehydrate-seg-btn" + (rehydrateRight ? " active" : "")}
+                        onClick={() => setRehydrateRight(true)}
+                        title="Show locally restored identities"
+                      >
+                        Restored
+                      </button>
+                      <button
+                        type="button"
+                        className={"rehydrate-seg-btn" + (!rehydrateRight ? " active" : "")}
+                        onClick={() => setRehydrateRight(false)}
+                        title="Show raw anonymized tokens returned by Cloud AI"
+                      >
+                        Tokens
+                      </button>
+                    </div>
                   </div>
                 </div>
 
                 <div className="right-panel-body">
                   {/* RIGHT MODE 1: AI INSIGHTS */}
                   {rightTab === "insights" && (
-                    <div className="insights-stack">
+                    <BlurFade key={`insights-${selectedDocId}-${rehydrateRight ? "r" : "t"}`} className="insights-stack" duration={0.22} offset={5}>
                       <div className="section-heading-row">
                         <h2 className="section-h3">
                           {routingPolicy === "airgapped_local_only"
                             ? "On-Device Local Summary (Air-Gapped)"
-                            : "Analysis Summary"}
+                            : "Executive Synthesis"}
                         </h2>
-                        {routingPolicy === "airgapped_local_only" && (
+                        {routingPolicy === "airgapped_local_only" ? (
                           <span className="offline-mode-tag">0 Network Calls</span>
+                        ) : (
+                          <span className="enclave-mini-tag mono">GEMINI 2.5 FLASH</span>
                         )}
                       </div>
 
@@ -2645,77 +2668,57 @@ export const App: React.FC = () => {
                         {renderRestoredProse(analysis?.executiveSummary ?? "")}
                       </div>
 
-                      <div className="section-heading-row" style={{ marginTop: "4px" }}>
-                        <h3 className="section-h3">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.4">
-                            <path d="M4 20V14M10 20V10M16 20V4M22 20v-8" />
-                          </svg>
-                          <span>Key Insights</span>
-                        </h3>
+                      <div className="section-heading-row" style={{ marginTop: "2px" }}>
+                        <span className="section-kicker mono">STRUCTURED TELEMETRY</span>
                       </div>
 
                       <div className="kpi-cards-grid">
                         <div className="kpi-insight-card">
-                          <span className="kpi-icon-circle blue" aria-hidden="true">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7V4z" />
-                            </svg>
-                          </span>
-                          <span className="kpi-card-label">{currentDocMeta.kpi1Label}</span>
+                          <span className="kpi-card-label mono">{currentDocMeta.kpi1Label}</span>
                           <span className="kpi-card-value">{currentDocMeta.kpi1Main}</span>
                           <span className="kpi-card-sub">{primarySubjectName}</span>
                         </div>
 
                         <div className="kpi-insight-card">
-                          <span className="kpi-icon-circle green" aria-hidden="true">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3">
-                              <rect x="3" y="5" width="18" height="16" rx="2.5" />
-                              <path d="M16 3v4M8 3v4M3 10h18" />
-                            </svg>
-                          </span>
-                          <span className="kpi-card-label">{currentDocMeta.kpi2Label}</span>
+                          <span className="kpi-card-label mono">{currentDocMeta.kpi2Label}</span>
                           <span className="kpi-card-value">{currentDocMeta.kpi2Main}</span>
                           <span className="kpi-card-sub">{currentDocMeta.kpi2Sub}</span>
                         </div>
 
                         <div className="kpi-insight-card">
-                          <span className="kpi-icon-circle purple" aria-hidden="true">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3">
-                              <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
-                              <path d="M12 8v4M12 16h.01" />
-                            </svg>
-                          </span>
-                          <span className="kpi-card-label">{currentDocMeta.kpi3Label}</span>
+                          <span className="kpi-card-label mono">{currentDocMeta.kpi3Label}</span>
                           <span className="kpi-card-value">{currentDocMeta.kpi3Main}</span>
                           <span className="kpi-card-sub">{currentDocMeta.kpi3Sub}</span>
                         </div>
                       </div>
 
                       <div className="restored-banner">
-                        <span className="check-circle-green" aria-hidden="true">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                            <path d="M5 13l4 4L19 7" />
-                          </svg>
+                        <span className="live-emerald-dot" aria-hidden="true" />
+                        <span className="restored-kicker mono">RAM REHYDRATION</span>
+                        <span className="restored-copy">
+                          {rehydrateRight
+                            ? "Identities restored locally in browser memory; Cloud AI processed tokens only."
+                            : "Viewing exact zero-PII token output returned by Cloud AI prior to rehydration."}
                         </span>
-                        <span>Your private information has been restored locally.</span>
                       </div>
 
                       <div className="section-heading-row" style={{ marginTop: "2px" }}>
-                        <h3 className="section-h3">
-                          <span style={{ color: "#2563eb" }}>✦</span>
-                          <span>Recommended Next Steps</span>
-                        </h3>
+                        <span className="section-kicker mono">RECOMMENDED ACTIONS</span>
                       </div>
 
                       <div className="next-steps-list">
                         {analysis?.pharmacovigilanceOrClauseAlerts.map((alert, idx) => (
-                          <div key={idx} className="next-step-row">
-                            <span className="check-circle-green" aria-hidden="true">
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2">
-                                <path d="M5 13l4 4L19 7" />
-                              </svg>
+                          <motion.div
+                            key={idx}
+                            className="next-step-row"
+                            initial={{ opacity: 0, x: -4 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: 0.05 * idx, duration: 0.22 }}
+                          >
+                            <span className="step-index-badge mono" aria-hidden="true">
+                              {String(idx + 1).padStart(2, "0")}
                             </span>
-                            <div>
+                            <div className="next-step-body">
                               {alert.title === alert.recommendation ? (
                                 renderRestoredProse(alert.recommendation)
                               ) : (
@@ -2725,20 +2728,20 @@ export const App: React.FC = () => {
                                 </>
                               )}
                             </div>
-                          </div>
+                          </motion.div>
                         ))}
                       </div>
-                    </div>
+                    </BlurFade>
                   )}
 
                   {/* RIGHT MODE 2: INTERACTIVE Q&A ASSISTANT */}
                   {rightTab === "qa" && (
-                    <div className="qa-thread" aria-live="polite">
+                    <BlurFade key={`qa-${selectedDocId}`} className="qa-thread" duration={0.22} offset={4}>
                       {qaThread.map((turn) => (
                         <React.Fragment key={turn.id}>
                           <div className="qa-user-row">
                             <span className="qa-user-avatar" aria-hidden="true">
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2.2c-3.8 0-7.5 1.9-7.5 4.6V21h15v-2.2c0-2.7-3.7-4.6-7.5-4.6z" />
                               </svg>
                             </span>
@@ -2759,8 +2762,9 @@ export const App: React.FC = () => {
 
                           <div className="qa-ai-row">
                             <span className="qa-ai-avatar" aria-hidden="true">
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 2L20 5.5v6c0 5-3.4 9.3-8 10.6-4.6-1.3-8-5.6-8-10.6v-6L12 2zm0 5l1.4 3.2 3.2 1.4-3.2 1.4L12 16.2 10.6 13l-3.2-1.4 3.2-1.4L12 7z" />
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1">
+                                <path d="M12 3l8 4v5.5c0 5-3.4 9-8 10.5-4.6-1.5-8-5.5-8-10.5V7l8-4z" />
+                                <rect x="9.5" y="9.5" width="5" height="5" rx="1" fill="currentColor" stroke="none" />
                               </svg>
                             </span>
 
@@ -2801,26 +2805,27 @@ export const App: React.FC = () => {
                           Masking question locally &amp; analyzing anonymized context…
                         </div>
                       )}
-                    </div>
+                    </BlurFade>
                   )}
 
-                  {/* Pinned Ask Anything Input Bar + Prompt Chips */}
+                  {/* Pinned Command Input Bar + Quick Prompt Chips */}
                   <div className="ask-dock">
                     <form
-                      className="ask-input-shell"
+                      className={"ask-input-shell" + (askFocused || isAskingQa ? " focused" : "")}
                       onSubmit={(e) => {
                         e.preventDefault();
                         void handleAskQuestion(questionDraft);
                       }}
                     >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2">
-                        <path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5z" />
-                      </svg>
+                      {(askFocused || isAskingQa) && <BorderBeam size={56} duration={4.5} />}
+                      <span className="ask-prompt-glyph mono" aria-hidden="true">›_</span>
                       <input
                         type="text"
                         className="ask-input"
-                        placeholder="Ask anything about this document..."
+                        placeholder="Query anonymized document…"
                         value={questionDraft}
+                        onFocus={() => setAskFocused(true)}
+                        onBlur={() => setAskFocused(false)}
                         onChange={(e) => setQuestionDraft(e.target.value)}
                       />
                       <button
@@ -2829,8 +2834,8 @@ export const App: React.FC = () => {
                         aria-label="Send question"
                         disabled={isAskingQa}
                       >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3">
+                          <path d="M5 12h14M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       </button>
                     </form>
@@ -2843,13 +2848,14 @@ export const App: React.FC = () => {
                           className="prompt-chip"
                           onClick={() => void handleAskQuestion(chip)}
                         >
-                          {chip}
+                          <span>{chip}</span>
+                          <span className="chip-arrow" aria-hidden="true">↗</span>
                         </button>
                       ))}
                     </div>
                   </div>
                 </div>
-              </section>
+              </MagicCard>
             </main>
           )}
 
@@ -2857,7 +2863,7 @@ export const App: React.FC = () => {
           {sidebarNav === "batch" && (
             <main className="workspace-split" aria-label="Multi-Document Batch De-Identification Studio">
               {/* LEFT PANEL: Packet Queue + File Preview + Cross-File Shared Entity Matrix */}
-              <section className="glass-panel">
+              <MagicCard className="glass-panel">
                 <div className="card-tabbar">
                   <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
                     <span className="vault-lock-badge" aria-hidden="true">
@@ -3066,15 +3072,20 @@ export const App: React.FC = () => {
                     ↓ Export Packet PDF
                   </button>
                 </div>
-              </section>
+              </MagicCard>
 
               {/* RIGHT PANEL: Cross-Document Cloud Gemini 2.5 Synthesis */}
-              <section className="glass-panel">
+              <MagicCard className="glass-panel">
                 <div className="card-tabbar">
                   <div className="card-tabs">
                     <span className="card-tab active">
-                      <span style={{ color: "#2563eb" }}>✦</span>
-                      <span>Cross-Packet AI Reconciliation</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="18" cy="18" r="3" />
+                        <circle cx="6" cy="6" r="3" />
+                        <path d="M13 6h3a2 2 0 0 1 2 2v7M6 9v12" />
+                      </svg>
+                      <span>Cross-Packet Reconciliation</span>
+                      <span className="card-tab-indicator" />
                     </span>
                   </div>
                   <div className="tab-controls-right">
@@ -3163,7 +3174,7 @@ export const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              </section>
+              </MagicCard>
             </main>
           )}
 
@@ -3171,7 +3182,7 @@ export const App: React.FC = () => {
           {sidebarNav === "firewall" && (
             <main className="workspace-split" aria-label="Outbound AI Prompt Firewall and Safe Composer">
               {/* LEFT PANEL: Compliance Policy Builder + Live As-You-Type Firewall */}
-              <section className="glass-panel">
+              <MagicCard className="glass-panel">
                 <div className="card-tabbar">
                   <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
                     <span className="vault-lock-badge" aria-hidden="true">
@@ -3297,15 +3308,18 @@ export const App: React.FC = () => {
                     {copiedId === "fw-masked" ? "✓ Copied Masked Prompt" : "Copy Masked Prompt"}
                   </button>
                 </div>
-              </section>
+              </MagicCard>
 
               {/* RIGHT PANEL: Safe Cloud AI Rewrite & Task Composer */}
-              <section className="glass-panel">
+              <MagicCard className="glass-panel">
                 <div className="card-tabbar">
                   <div className="card-tabs">
                     <span className="card-tab active">
-                      <span style={{ color: "#7c3aed" }}>✦</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                      </svg>
                       <span>Safe Cloud AI Composer</span>
+                      <span className="card-tab-indicator" />
                     </span>
                   </div>
                   <div className="tab-controls-right">
@@ -3402,7 +3416,7 @@ export const App: React.FC = () => {
                     </button>
                   </div>
                 </div>
-              </section>
+              </MagicCard>
             </main>
           )}
 
@@ -3765,9 +3779,26 @@ export const App: React.FC = () => {
       </div>
 
       {/* Upload / Paste Document Modal */}
-      {uploadModalOpen && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Upload or paste confidential document">
-          <div className="modal-card">
+      <AnimatePresence>
+        {uploadModalOpen && (
+          <motion.div
+            key="upload-modal"
+            className="modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Upload or paste confidential document"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <motion.div
+              className="modal-card"
+              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            >
             <div className="section-heading-row">
               <div>
                 <h2 className="section-h3">Load or Paste Confidential Document</h2>
@@ -3872,9 +3903,10 @@ export const App: React.FC = () => {
                 Mask Locally &amp; Analyze
               </button>
             </div>
-          </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 };
