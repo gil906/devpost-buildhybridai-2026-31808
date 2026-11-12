@@ -155,7 +155,11 @@ const runtimeEnv = (import.meta as unknown as { env?: Record<string, string | un
 
 export const DEFAULT_DEMO_FIREBASE_CONFIG: FirebaseWebConfig = {
   apiKey: runtimeEnv.VITE_FIREBASE_API_KEY || "DEMO_OFFLINE_SANDBOX",
-  authDomain: runtimeEnv.VITE_FIREBASE_AUTH_DOMAIN || "localhost",
+  authDomain:
+    runtimeEnv.VITE_FIREBASE_AUTH_DOMAIN ||
+    (typeof window !== "undefined" && window.location?.hostname
+      ? window.location.hostname
+      : "piizero-local-sandbox.firebaseapp.com"),
   projectId: runtimeEnv.VITE_FIREBASE_PROJECT_ID || "piizero-local-sandbox",
   storageBucket: runtimeEnv.VITE_FIREBASE_STORAGE_BUCKET || "",
   messagingSenderId: runtimeEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || "000000000000",
@@ -343,7 +347,7 @@ export function initializePiiZeroFirebase(
 
   let auth: Auth | null = null;
   try {
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && isLiveFirebaseConfigured(config)) {
       auth = getAuth(app);
     }
   } catch {
