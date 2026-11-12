@@ -3,6 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { initializeApp, getApps } from "firebase/app";
+import {
+  getAI,
+  getGenerativeModel,
+  GoogleAIBackend,
+  InferenceMode,
+  InferenceSource
+} from "firebase/ai";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,7 +62,7 @@ function sendJson(res, statusCode, payload) {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type"
+    "Access-Control-Allow-Headers": "Content-Type, X-Firebase-AppCheck, X-Firebase-Appid, x-goog-api-client, x-goog-api-key, Authorization"
   });
   res.end(body);
 }
@@ -404,30 +412,35 @@ function buildServerSideAnalysis(sanitizedText, vaultTokens = [], mode = "hybrid
 }
 
 let geminiKeyCursor = 0;
-function loadServerGeminiKeys() {
-  if (process.env.GEMINI_API_KEYS) {
-    return process.env.GEMINI_API_KEYS.split(",").map((s) => s.trim()).filter(Boolean);
-  }
-  const secretPath = process.env.GEMINI_KEYS_FILE || "/run/secrets/gemini-keys.json";
+function loadServerFirebaseAiConfig() {
+  const secretPath = process.env.FIREBASE_AI_RUNTIME_FILE || "/run/secrets/gemini-keys.json";
   try {
     if (fs.existsSync(secretPath)) {
       const parsed = JSON.parse(fs.readFileSync(secretPath, "utf8"));
-      if (Array.isArray(parsed?.keys)) {
-        return parsed.keys.filter((k) => typeof k === "string" && k.length > 20);
-      }
+      const keys = Array.isArray(parsed?.keys)
+        ? parsed.keys.filter((k) => typeof k === "string" && k.length > 20)
+        : [];
+      const baseEndpoint =
+        typeof parsed?.baseEndpoint === "string" && parsed.baseEndpoint.startsWith("https://")
+          ? parsed.baseEndpoint
+          : process.env.FIREBASE_AI_UPSTREAM_ENDPOINT || "";
+      const projectId = parsed?.projectId || process.env.FIREBASE_PROJECT_ID || "piizero-hybrid-enclave";
+      return { keys, baseEndpoint, projectId };
     }
   } catch {
     // Ignore
   }
-  return [];
+  return { keys: [], baseEndpoint: "", projectId: "piizero-hybrid-enclave" };
 }
 
-async function tryLiveGeminiQa({ sanitizedText, sanitizedQuestion, vaultTokens, mode }) {
+async function tryLiveFirebaseAiQa({ sanitizedText, sanitizedQuestion, vaultTokens, mode }) {
   if (mode === "airgapped_local_only" || mode === "only_on_device") return null;
-  const keys = loadServerGeminiKeys();
+  const { keys, baseEndpoint, projectId } = loadServerFirebaseAiConfig();
   if (keys.length === 0) return null;
 
   const modelName = mode === "prefer_on_device" ? "gemini-2.5-flash-lite" : "gemini-2.5-flash";
+  const sdkMode =
+    mode === "prefer_on_device" ? InferenceMode.PREFER_ON_DEVICE : InferenceMode.ONLY_IN_CLOUD;
   const tokenHint = vaultTokens.map((t) => t.token).slice(0, 10).join(", ");
   const prompt = [
     "You are PII-Zero, a Zero-Trust Clinical & Legal AI Assistant.",
@@ -445,25 +458,57 @@ async function tryLiveGeminiQa({ sanitizedText, sanitizedQuestion, vaultTokens, 
 
   for (let attempt = 0; attempt < Math.min(2, keys.length); attempt++) {
     const key = keys[(geminiKeyCursor++) % keys.length];
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3800);
     try {
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.2, maxOutputTokens: 420 }
-          }),
-          signal: controller.signal
+      const appName = `piizero-srv-${attempt}`;
+      const existing = getApps().find((a) => a.name === appName);
+      const app =
+        existing ||
+        initializeApp(
+          {
+            apiKey: key,
+            projectId,
+            appId: `1:${projectId}:web:piizero`
+          },
+          appName
+        );
+      const ai = getAI(app, { backend: new GoogleAIBackend() });
+      const generativeModel = getGenerativeModel(ai, {
+        mode: sdkMode,
+        inCloudParams: {
+          model: modelName,
+          generationConfig: { temperature: 0.2, maxOutputTokens: 420 }
         }
-      );
-      clearTimeout(timer);
-      if (!resp.ok) continue;
-      const json = await resp.json();
-      const text = (json?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "").trim();
+      });
+
+      let text = "";
+      try {
+        const res = await generativeModel.generateContent(prompt, { timeout: 3500 });
+        text = (res.response.text() || "").trim();
+      } catch {
+        if (baseEndpoint) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 3800);
+          try {
+            const resp = await fetch(`${baseEndpoint}/${modelName}:generateContent?key=${key}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.2, maxOutputTokens: 420 }
+              }),
+              signal: controller.signal
+            });
+            clearTimeout(timer);
+            if (resp.ok) {
+              const json = await resp.json();
+              text = (json?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "").trim();
+            }
+          } catch {
+            clearTimeout(timer);
+          }
+        }
+      }
+
       if (text.length > 30) {
         const blocks = text.split(/^###\s+/m).map((b) => b.trim()).filter(Boolean);
         const sections = blocks.slice(0, 4).map((b, idx) => {
@@ -484,13 +529,13 @@ async function tryLiveGeminiQa({ sanitizedText, sanitizedQuestion, vaultTokens, 
               mode === "prefer_on_device"
                 ? "PREFER_ON_DEVICE · NANO 4 → FLASH-LITE"
                 : "HYBRID CLOUD · GEMINI 2.5 FLASH (LIVE)",
-            inferenceSource: mode === "prefer_on_device" ? "on_device" : "in_cloud",
+            inferenceSource: mode === "prefer_on_device" ? InferenceSource.ON_DEVICE : InferenceSource.IN_CLOUD,
             sections
           };
         }
       }
     } catch {
-      clearTimeout(timer);
+      // Try next key or fallback
     }
   }
   return null;
@@ -502,7 +547,7 @@ async function buildQuestionSpecificServerAnswer({
   vaultTokens = [],
   mode = "hybrid_cloud"
 }) {
-  const liveResult = await tryLiveGeminiQa({
+  const liveResult = await tryLiveFirebaseAiQa({
     sanitizedText,
     sanitizedQuestion,
     vaultTokens,
@@ -849,9 +894,109 @@ export function createAirlockServer() {
       res.writeHead(204, {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type"
+        "Access-Control-Allow-Headers": "Content-Type, X-Firebase-AppCheck, X-Firebase-Appid, x-goog-api-client, x-goog-api-key, Authorization"
       });
       res.end();
+      return;
+    }
+
+    // Official Firebase AI Logic SDK (GoogleAIBackend) generateContent endpoint
+    if (
+      req.method === "POST" &&
+      pathname.startsWith("/v1beta/projects/") &&
+      pathname.endsWith(":generateContent")
+    ) {
+      try {
+        const body = await readJsonBody(req);
+        const promptParts = [];
+        for (const content of body.contents || []) {
+          for (const part of content.parts || []) {
+            if (typeof part.text === "string") promptParts.push(part.text);
+          }
+        }
+        const fullPrompt = promptParts.join("\n");
+        const violations = detectRawPiiViolations(fullPrompt);
+        if (violations.length > 0) {
+          sendJson(res, 422, {
+            error: {
+              code: 422,
+              message: `Zero-PII Airlock blocked outbound Firebase AI Logic request: ${violations.join(", ")}`,
+              status: "FAILED_PRECONDITION"
+            }
+          });
+          return;
+        }
+
+        const apiClientHeader = String(req.headers["x-goog-api-client"] || "");
+        const modeMatch = fullPrompt.match(/Routing Mode:\s*([a-z_]+)/i);
+        const qMatch = fullPrompt.match(/Question:\s*(.+)/i);
+        const docIdx = fullPrompt.indexOf("Document:\n");
+        const docBody = docIdx !== -1 ? fullPrompt.slice(docIdx + 10) : fullPrompt;
+        const mode = modeMatch
+          ? modeMatch[1].trim()
+          : apiClientHeader.includes("hybrid") || pathname.includes("flash-lite")
+          ? "prefer_on_device"
+          : "hybrid_cloud";
+        const sanitizedQuestion = qMatch ? qMatch[1].trim() : "Summarize this document";
+
+        const extractedTokens = Array.from(
+          new Set(docBody.match(/\[[A-Z0-9_]+\]/g) || [])
+        ).map((tok) => ({
+          token: tok,
+          category: tok.includes("PATIENT") || tok.includes("PROVIDER") || tok.includes("NAME") || tok.includes("EXECUTIVE")
+            ? "PATIENT_CLIENT_NAME"
+            : tok.includes("DOB") || tok.includes("DATE")
+            ? "DOB_AGE"
+            : tok.includes("SSN")
+            ? "SSN"
+            : tok.includes("MRN")
+            ? "MRN"
+            : tok.includes("COMPANY") || tok.includes("CUSTOM")
+            ? "CUSTOM_POLICY"
+            : tok.includes("AMOUNT") || tok.includes("SETTLEMENT")
+            ? "SETTLEMENT_AMOUNT"
+            : tok.includes("DOCKET")
+            ? "CASE_DOCKET"
+            : tok.includes("COUNSEL")
+            ? "COUNSEL_JUDGE"
+            : tok.includes("UDI")
+            ? "DEVICE_UDI"
+            : tok.includes("ACCT")
+            ? "ACCOUNT_IBAN"
+            : tok.includes("BIO")
+            ? "BIOMETRIC_GENETIC"
+            : tok.includes("ADDR")
+            ? "ADDRESS_ZIP"
+            : "CUSTOM_POLICY"
+        }));
+
+        const qaBuilt = await buildQuestionSpecificServerAnswer({
+          sanitizedText: docBody,
+          sanitizedQuestion,
+          vaultTokens: extractedTokens,
+          mode
+        });
+
+        const formattedText = qaBuilt.sections
+          .map((s) => `### ${s.heading}\n${s.body}`)
+          .join("\n\n");
+
+        sendJson(res, 200, {
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [{ text: formattedText }]
+              },
+              finishReason: "STOP"
+            }
+          ]
+        });
+      } catch (err) {
+        sendJson(res, 400, {
+          error: { code: 400, message: String(err), status: "INVALID_ARGUMENT" }
+        });
+      }
       return;
     }
 

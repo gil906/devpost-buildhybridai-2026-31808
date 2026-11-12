@@ -12,6 +12,7 @@ ENV NODE_ENV=production
 ENV PORT=8764
 ENV HOST=0.0.0.0
 COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY server ./server
 COPY docs ./docs

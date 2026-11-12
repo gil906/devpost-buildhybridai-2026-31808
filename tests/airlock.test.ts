@@ -473,5 +473,39 @@ describe("PII-Zero Hybrid AI Airlock Engine & 18-Category HIPAA/Legal Scrubber",
     expect(modeAirgapped.inferenceSource).toBe("on_device");
     expect(modeHybrid.intro).not.toBe(modeAirgapped.intro);
     expect(modeHybrid.sections[0].heading).not.toBe(modeAirgapped.sections[0].heading);
+
+    // Verify official firebase/ai GenerativeModel.generateContent executes across ONLY_ON_DEVICE, PREFER_ON_DEVICE, and ONLY_IN_CLOUD
+    const server = createAirlockServer();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address() as { port: number };
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const ctx = initializePiiZeroFirebase();
+      expect(ctx.onlyOnDeviceModel).toBeDefined();
+      expect(ctx.preferOnDeviceModel).toBeDefined();
+      expect(ctx.stage3CloudModel).toBeDefined();
+      expect(ctx.firestore).toBeDefined();
+
+      const prompt = [
+        "Routing Mode: hybrid_cloud",
+        "Question: Who is the attending doctor?",
+        "Document:\n" + scrub.sanitizedText
+      ].join("\n");
+
+      const localRes = await ctx.onlyOnDeviceModel.generateContent(prompt);
+      expect(localRes.response.inferenceSource).toBe(InferenceSource.ON_DEVICE);
+      expect(localRes.response.text()).toContain("###");
+
+      const preferRes = await ctx.preferOnDeviceModel.generateContent(prompt, { baseUrl });
+      expect(preferRes.response.inferenceSource).toBe(InferenceSource.IN_CLOUD);
+      expect(preferRes.response.text()).toContain("[PROVIDER_1]");
+
+      const cloudRes = await ctx.stage3CloudModel.generateContent(prompt, { baseUrl });
+      expect(cloudRes.response.inferenceSource).toBe(InferenceSource.IN_CLOUD);
+      expect(cloudRes.response.text()).toContain("[PROVIDER_1]");
+    } finally {
+      server.close();
+    }
   });
 });

@@ -6,6 +6,10 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.GenerativeBackend
 import com.google.firebase.ai.type.generationConfig
+import com.google.firebase.appcheck.appCheck
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
+import com.google.firebase.remoteconfig.remoteConfig
+import com.google.firebase.remoteconfig.remoteConfigSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -17,6 +21,23 @@ object FirebaseHybridBridge {
             if (FirebaseApp.getApps(context).isEmpty()) {
                 FirebaseApp.initializeApp(context)
             }
+            Firebase.appCheck.installAppCheckProviderFactory(
+                PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
+            val rc = Firebase.remoteConfig
+            rc.setConfigSettingsAsync(
+                remoteConfigSettings {
+                    minimumFetchIntervalInSeconds = 3600
+                }
+            )
+            rc.setDefaultsAsync(
+                mapOf(
+                    "default_hybrid_mode" to "prefer_on_device",
+                    "cloud_model_name" to "gemini-2.5-flash",
+                    "hipaa_safe_harbor_categories" to 18L,
+                    "zero_pii_gatekeeper_strict" to true
+                )
+            )
         } catch (_: Throwable) {
             // Safe offline fallback when running in airgapped or test environments
         }
