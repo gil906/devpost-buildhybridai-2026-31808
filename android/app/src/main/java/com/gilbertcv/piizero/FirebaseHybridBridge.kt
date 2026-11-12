@@ -98,4 +98,56 @@ object FirebaseHybridBridge {
             restoredTokenCount = rehydrated.restoredTokenCount
         )
     }
+
+    suspend fun askDocumentQuestion(
+        rawText: String,
+        rawQuestion: String,
+        mode: HybridInferenceMode,
+        domain: ComplianceDomain,
+        rehydrateEnabled: Boolean
+    ): String = withContext(Dispatchers.Default) {
+        val scrubResult = PiiAirlockEngine.scrubText(rawText, domain)
+        val sanitizedQ = PiiAirlockEngine.scrubQuestionWithVault(rawQuestion, scrubResult.tokenVault)
+
+        var liveAnswer: String? = null
+        if (mode != HybridInferenceMode.ONLY_ON_DEVICE) {
+            try {
+                withTimeout(2200L) {
+                    val model = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
+                        modelName = "gemini-2.5-flash",
+                        generationConfig = generationConfig {
+                            temperature = 0.2f
+                            maxOutputTokens = 320
+                        }
+                    )
+                    val prompt = buildString {
+                        append("Answer the user's question about this de-identified ")
+                        append(domain.wireValue)
+                        append(" document in 2 concise bullet points. Preserve all [PII_*] tokens verbatim.\n\n")
+                        append("Question: ").append(sanitizedQ).append("\n\n")
+                        append("Document:\n").append(scrubResult.redactedText)
+                    }
+                    val response = model.generateContent(prompt)
+                    val liveText = response.text?.trim().orEmpty()
+                    if (liveText.length > 25) {
+                        val displayBody = if (rehydrateEnabled) {
+                            PiiAirlockEngine.rehydrateResponse(liveText, scrubResult.tokenVault).hydratedText
+                        } else {
+                            liveText
+                        }
+                        liveAnswer = "Sent to AI as: \"$sanitizedQ\"\n\n[FIREBASE-AI-LOGIC · ${mode.name}]\n$displayBody"
+                    }
+                }
+            } catch (_: Throwable) {
+                // Fall back to deterministic question-aware + mode-aware local synthesis
+            }
+        }
+
+        liveAnswer ?: PiiAirlockEngine.answerQuestionDeterministically(
+            scrubResult = scrubResult,
+            rawQuestion = rawQuestion,
+            mode = mode,
+            rehydrateEnabled = rehydrateEnabled
+        )
+    }
 }

@@ -131,7 +131,7 @@ const WORKSPACE_DOCS: Record<string, DocTabMeta> = {
     defaultLeftTab: "document",
     defaultRightTab: "insights",
     defaultQuestion: "What are the key findings and treatment plan for John Doe?",
-    quickChips: ["Summarize this record", "What are the key findings?", "Any concerns?"],
+    quickChips: ["Summarize this record", "What are the key findings?", "Who is the provider & follow-up?"],
     kpi1Label: "Patient Info",
     kpi1Main: "1 Patient",
     kpi2Label: "Visit Date",
@@ -296,6 +296,8 @@ interface QaConversationItem {
   timestamp: string;
   intro: string;
   sections: QaAnswerSection[];
+  routingPolicy?: HybridRoutingPolicy;
+  engineBadge?: string;
 }
 
 interface AuditHistoryEntry {
@@ -670,7 +672,11 @@ export const App: React.FC = () => {
   }, [selectedDocId, customDocMeta]);
 
   const buildDefaultQaTurn = useCallback(
-    (res: HybridPipelineExecutionResult, docId: string): QaConversationItem => {
+    (
+      res: HybridPipelineExecutionResult,
+      docId: string,
+      policy: HybridRoutingPolicy = routingPolicy
+    ): QaConversationItem => {
       const meta =
         docId === "custom-doc" && customDocMeta
           ? customDocMeta
@@ -697,21 +703,34 @@ export const App: React.FC = () => {
         });
       }
 
+      const engineBadge =
+        policy === "airgapped_local_only"
+          ? "LOCAL ONLY · ON-DEVICE RAM"
+          : policy === "prefer_on_device"
+          ? "PREFER_ON_DEVICE · NANO 4 → FLASH"
+          : "HYBRID CLOUD · GEMINI 2.5 FLASH";
+
       return {
         id: "qa-seed-" + docId,
         question: meta.defaultQuestion,
         sanitizedQuestion: scrubQuestionWithVaultPreview(meta.defaultQuestion, vault),
         timestamp: "10:24 AM",
+        routingPolicy: policy,
+        engineBadge,
         intro:
-          docId === "doc-nda-contract"
-            ? "I've reviewed the NDA agreement and here's the analysis:"
+          policy === "airgapped_local_only"
+            ? `[100% Local Air-Gapped Enclave · 0 B Cloud Egress] Offline analysis of ${meta.fileName}:`
+            : policy === "prefer_on_device"
+            ? `[On-Device Gemini Nano 4 Primary · Hybrid Verified] Local-first analysis of ${meta.fileName}:`
+            : docId === "doc-nda-contract"
+            ? "I've reviewed the NDA agreement (Hybrid Cloud · Gemini 2.5 Flash) and here's the analysis:"
             : meta.isLegal
-            ? "I've reviewed the anonymized agreement and here's the clause-by-clause analysis:"
-            : "I've reviewed the medical record and here's the clinical breakdown:",
+            ? "I've reviewed the anonymized agreement (Hybrid Cloud · Gemini 2.5 Flash) and here's the clause-by-clause analysis:"
+            : "I've reviewed the medical record (Hybrid Cloud · Gemini 2.5 Flash) and here's the clinical breakdown:",
         sections
       };
     },
-    [customDocMeta]
+    [customDocMeta, routingPolicy]
   );
 
   const executeAirlock = useCallback(
@@ -723,10 +742,13 @@ export const App: React.FC = () => {
       modelName: string,
       docId: string,
       triggerDemoLeak = false,
-      docMetaOverride?: DocTabMeta
+      docMetaOverride?: DocTabMeta,
+      policyOverride?: HybridRoutingPolicy,
+      preserveActiveQuestion?: string
     ) => {
       setIsRunning(true);
       if (!triggerDemoLeak) setSimulatedLeakAlert(null);
+      const effectivePolicy = policyOverride ?? routingPolicy;
       try {
         const meta = docMetaOverride ?? WORKSPACE_DOCS[docId];
         const terms = customCsv
@@ -739,13 +761,41 @@ export const App: React.FC = () => {
           extraEntities: meta?.extraEntities,
           tokenAliases: meta?.tokenAliases,
           stage1Mode: mode,
+          routingPolicy: effectivePolicy,
           firebaseConfig: cfg,
           cloudModelName: modelName
         });
         setPipelineResult(result);
         setActivePeekOccurrenceKey("first");
         setActivePeekToken(null);
-        setQaThread([buildDefaultQaTurn(result, docId)]);
+
+        if (preserveActiveQuestion && preserveActiveQuestion.trim()) {
+          const qaRes = await askHybridDocumentQuestion({
+            sanitizedDocumentText: result.scrubResult.sanitizedText,
+            rawQuestion: preserveActiveQuestion.trim(),
+            vaultEntries: result.scrubResult.vaultEntries,
+            routingPolicy: effectivePolicy,
+            firebaseConfig: cfg,
+            cloudModelName: modelName
+          });
+          const now = new Date();
+          const timeStr = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+          setQaThread((prev) => [
+            {
+              id: "qa-" + Date.now(),
+              question: preserveActiveQuestion.trim(),
+              sanitizedQuestion: qaRes.sanitizedQuestion,
+              timestamp: timeStr,
+              intro: qaRes.intro,
+              sections: qaRes.sections,
+              routingPolicy: effectivePolicy,
+              engineBadge: qaRes.engineBadge
+            },
+            ...prev.filter((t) => !t.id.startsWith("qa-seed-") && t.question !== preserveActiveQuestion.trim()).slice(0, 4)
+          ]);
+        } else {
+          setQaThread([buildDefaultQaTurn(result, docId, effectivePolicy)]);
+        }
 
         if (meta) {
           setAuditHistory((prev) => {
@@ -870,9 +920,10 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleAskQuestion = async (questionText: string) => {
+  const handleAskQuestion = async (questionText: string, policyOverride?: HybridRoutingPolicy) => {
     const trimmed = questionText.trim();
     if (!trimmed || !pipelineResult || isAskingQa) return;
+    const activePolicy = policyOverride ?? routingPolicy;
     setRightTab("qa");
     setQuestionDraft("");
     setIsAskingQa(true);
@@ -881,21 +932,24 @@ export const App: React.FC = () => {
         sanitizedDocumentText: pipelineResult.scrubResult.sanitizedText,
         rawQuestion: trimmed,
         vaultEntries: pipelineResult.scrubResult.vaultEntries,
+        routingPolicy: activePolicy,
         firebaseConfig,
         cloudModelName
       });
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
       setQaThread((prev) => [
-        ...prev,
         {
           id: "qa-" + Date.now(),
           question: trimmed,
           sanitizedQuestion: qaRes.sanitizedQuestion,
           timestamp: timeStr,
           intro: qaRes.intro,
-          sections: qaRes.sections
-        }
+          sections: qaRes.sections,
+          routingPolicy: activePolicy,
+          engineBadge: qaRes.engineBadge
+        },
+        ...prev.filter((t) => !t.id.startsWith("qa-seed-")).slice(0, 5)
       ]);
     } catch (err) {
       setSimulatedLeakAlert({
@@ -1005,19 +1059,24 @@ export const App: React.FC = () => {
       policy === "prefer_on_device"
         ? InferenceMode.PREFER_ON_DEVICE
         : InferenceMode.ONLY_ON_DEVICE;
-    if (nextStage1 !== stage1Mode) {
-      setStage1Mode(nextStage1);
-      void executeAirlock(
-        rawText,
-        customTermsInput,
-        nextStage1,
-        firebaseConfig,
-        cloudModelName,
-        selectedDocId,
-        false,
-        currentDocMeta
-      );
-    }
+    setStage1Mode(nextStage1);
+    const activeTopTurn = qaThread[0];
+    const activeCustomQ =
+      activeTopTurn && !activeTopTurn.id.startsWith("qa-seed-")
+        ? activeTopTurn.question
+        : undefined;
+    void executeAirlock(
+      rawText,
+      customTermsInput,
+      nextStage1,
+      firebaseConfig,
+      cloudModelName,
+      selectedDocId,
+      false,
+      currentDocMeta,
+      policy,
+      activeCustomQ
+    );
   };
 
   const handleCaptureDocumentSelection = () => {
@@ -2952,11 +3011,58 @@ export const App: React.FC = () => {
                         <h2 className="navy-h2">
                           {routingPolicy === "airgapped_local_only"
                             ? "On-Device Local Summary"
+                            : routingPolicy === "prefer_on_device"
+                            ? "Prefer-On-Device Hybrid Summary"
                             : "Executive Synthesis"}
                         </h2>
                       </div>
-                      <div className="navy-badge-row">
-                        <span className="navy-model-pill mono">GEMINI 2.5 FLASH</span>
+                      <div className="navy-badge-row" style={{ flexWrap: "wrap", gap: "6px" }}>
+                        <span className="navy-model-pill mono">
+                          {routingPolicy === "airgapped_local_only"
+                            ? "LOCAL ENCLAVE · 0 B CLOUD"
+                            : routingPolicy === "prefer_on_device"
+                            ? "NANO 4 → FLASH HYBRID"
+                            : "GEMINI 2.5 FLASH"}
+                        </span>
+                        <button
+                          type="button"
+                          className="navy-toggle-mode mono"
+                          style={
+                            routingPolicy === "hybrid_cloud"
+                              ? { background: "#2563eb", color: "#ffffff", borderColor: "#60a5fa" }
+                              : undefined
+                          }
+                          onClick={() => handleSelectRoutingPolicy("hybrid_cloud")}
+                          title="Hybrid: Local Scrub -> Cloud Gemini 2.5 Flash"
+                        >
+                          HYBRID
+                        </button>
+                        <button
+                          type="button"
+                          className="navy-toggle-mode mono"
+                          style={
+                            routingPolicy === "prefer_on_device"
+                              ? { background: "#2563eb", color: "#ffffff", borderColor: "#60a5fa" }
+                              : undefined
+                          }
+                          onClick={() => handleSelectRoutingPolicy("prefer_on_device")}
+                          title="Prefer On-Device (Gemini Nano 4 -> Cloud Fallback)"
+                        >
+                          PREFER LOCAL
+                        </button>
+                        <button
+                          type="button"
+                          className="navy-toggle-mode mono"
+                          style={
+                            routingPolicy === "airgapped_local_only"
+                              ? { background: "#059669", color: "#ffffff", borderColor: "#34d399" }
+                              : undefined
+                          }
+                          onClick={() => handleSelectRoutingPolicy("airgapped_local_only")}
+                          title="Offline Air-Gapped (100% Local RAM Enclave)"
+                        >
+                          100% LOCAL
+                        </button>
                         <button
                           type="button"
                           className="navy-toggle-mode mono"
@@ -3075,9 +3181,18 @@ export const App: React.FC = () => {
                     <div className="navy-qa-thread" aria-live="polite">
                       {qaThread.map((turn) => (
                         <div key={turn.id} className="navy-qa-card">
-                          <div className="navy-qa-q">Q: {turn.question}</div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                            <div className="navy-qa-q">Q: {turn.question}</div>
+                            {turn.engineBadge && (
+                              <span className="navy-model-pill mono" style={{ fontSize: "9.5px" }}>
+                                {turn.engineBadge}
+                              </span>
+                            )}
+                          </div>
                           <div className="navy-qa-proof mono">
-                            Sent to Cloud as: {turn.sanitizedQuestion}
+                            {turn.routingPolicy === "airgapped_local_only"
+                              ? `Processed 100% in Local RAM as: ${turn.sanitizedQuestion}`
+                              : `Sent to AI as: ${turn.sanitizedQuestion}`}
                           </div>
                           <div className="navy-qa-a">{turn.intro}</div>
                           {turn.sections.map((sec, sIdx) => (
@@ -3134,7 +3249,7 @@ export const App: React.FC = () => {
                   </form>
 
                   <div className="prompt-chips-row">
-                    {currentDocMeta.quickChips.slice(0, 2).map((chip, cIdx) => (
+                    {currentDocMeta.quickChips.map((chip, cIdx) => (
                       <RippleButton
                         key={chip}
                         type="button"

@@ -53,4 +53,33 @@ class PiiAirlockEngineTest {
         assertTrue(hydrated.hydratedText.contains("2026-11-15"))
         assertEquals(3, hydrated.restoredTokenCount)
     }
+
+    @Test
+    fun answerQuestionDeterministically_differsByQuestionAndMode() {
+        val raw = "Patient: John Doe (DOB: 04/15/1978, SSN: 123-45-6789, MRN-88492014) evaluated at 123 Health Way, Suite 200 on 10/23/2024. Attending: Dr. Sarah Johnson. Ongoing back pain and possible disc herniation."
+        val scrubbed = PiiAirlockEngine.scrubText(raw, ComplianceDomain.CLINICAL)
+
+        val ansWho = PiiAirlockEngine.answerQuestionDeterministically(
+            scrubbed,
+            "Who is the attending provider?",
+            HybridInferenceMode.PREFER_ON_DEVICE,
+            true
+        )
+        val ansFindings = PiiAirlockEngine.answerQuestionDeterministically(
+            scrubbed,
+            "What are the key findings?",
+            HybridInferenceMode.PREFER_ON_DEVICE,
+            true
+        )
+        val ansLocal = PiiAirlockEngine.answerQuestionDeterministically(
+            scrubbed,
+            "What are the key findings?",
+            HybridInferenceMode.ONLY_ON_DEVICE,
+            true
+        )
+
+        assertFalse(ansWho == ansFindings)
+        assertFalse(ansFindings == ansLocal)
+        assertTrue(ansLocal.contains("100% LOCAL ENCLAVE"))
+    }
 }

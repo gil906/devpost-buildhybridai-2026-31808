@@ -390,4 +390,88 @@ describe("PII-Zero Hybrid AI Airlock Engine & 18-Category HIPAA/Legal Scrubber",
     expect(appSource).not.toContain('label: "SDK"');
     expect(appSource).not.toContain('sidebarNav === "settings"');
   });
+
+  it("answers different questions distinctly and differentiates Hybrid, Prefer-On-Device, and Local-Only modes", async () => {
+    const rawMedical = [
+      "Riverside Medical Center",
+      "Patient Name: John Doe",
+      "Date of Birth: 04/15/1978",
+      "SSN: 123-45-6789",
+      "Visit Summary: Patient presented with ongoing back pain and was evaluated for possible disc herniation. Recommended follow-up in 3 months.",
+      "Provider: Dr. Sarah Johnson",
+      "Date of Visit: 10/23/2024",
+      "Treatment Plan: Continue current medication, Physical therapy recommended, Follow-up appointment in 3 months."
+    ].join("\n");
+
+    const scrub = scrubTextWithAirlock(rawMedical, {
+      extraRecognizedEntities: [
+        { value: "John Doe", category: "PATIENT_CLIENT_NAME" },
+        { value: "Dr. Sarah Johnson", category: "PATIENT_CLIENT_NAME" }
+      ],
+      tokenAliases: {
+        "John Doe": "[PATIENT_1]",
+        "04/15/1978": "[DOB_1]",
+        "123-45-6789": "[SSN_1]",
+        "Dr. Sarah Johnson": "[PROVIDER_1]",
+        "10/23/2024": "[VISIT_DATE_1]"
+      }
+    });
+
+    const qaWho = await askHybridDocumentQuestion({
+      sanitizedDocumentText: scrub.sanitizedText,
+      rawQuestion: "Who is the attending doctor?",
+      vaultEntries: scrub.vaultEntries,
+      routingPolicy: "hybrid_cloud"
+    });
+    const qaWhen = await askHybridDocumentQuestion({
+      sanitizedDocumentText: scrub.sanitizedText,
+      rawQuestion: "When is the follow-up scheduled?",
+      vaultEntries: scrub.vaultEntries,
+      routingPolicy: "hybrid_cloud"
+    });
+    const qaFindings = await askHybridDocumentQuestion({
+      sanitizedDocumentText: scrub.sanitizedText,
+      rawQuestion: "What are the key findings and diagnosis?",
+      vaultEntries: scrub.vaultEntries,
+      routingPolicy: "hybrid_cloud"
+    });
+    const qaSsn = await askHybridDocumentQuestion({
+      sanitizedDocumentText: scrub.sanitizedText,
+      rawQuestion: "Was the SSN redacted and safe?",
+      vaultEntries: scrub.vaultEntries,
+      routingPolicy: "hybrid_cloud"
+    });
+
+    expect(qaWho.sections[0].heading).not.toBe(qaWhen.sections[0].heading);
+    expect(qaWhen.sections[0].heading).not.toBe(qaFindings.sections[0].heading);
+    expect(qaFindings.sections[0].heading).not.toBe(qaSsn.sections[0].heading);
+    expect(qaWho.sections.some((s) => s.restoredBody.includes("Dr. Sarah Johnson"))).toBe(true);
+
+    // Same question across 3 different routing policies produces distinct mode badges, sources, and intros
+    const modeHybrid = await askHybridDocumentQuestion({
+      sanitizedDocumentText: scrub.sanitizedText,
+      rawQuestion: "What are the key findings?",
+      vaultEntries: scrub.vaultEntries,
+      routingPolicy: "hybrid_cloud"
+    });
+    const modePreferLocal = await askHybridDocumentQuestion({
+      sanitizedDocumentText: scrub.sanitizedText,
+      rawQuestion: "What are the key findings?",
+      vaultEntries: scrub.vaultEntries,
+      routingPolicy: "prefer_on_device"
+    });
+    const modeAirgapped = await askHybridDocumentQuestion({
+      sanitizedDocumentText: scrub.sanitizedText,
+      rawQuestion: "What are the key findings?",
+      vaultEntries: scrub.vaultEntries,
+      routingPolicy: "airgapped_local_only"
+    });
+
+    expect(modeHybrid.engineBadge).not.toBe(modePreferLocal.engineBadge);
+    expect(modePreferLocal.engineBadge).not.toBe(modeAirgapped.engineBadge);
+    expect(modeHybrid.inferenceSource).toBe("in_cloud");
+    expect(modeAirgapped.inferenceSource).toBe("on_device");
+    expect(modeHybrid.intro).not.toBe(modeAirgapped.intro);
+    expect(modeHybrid.sections[0].heading).not.toBe(modeAirgapped.sections[0].heading);
+  });
 });

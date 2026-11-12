@@ -24,10 +24,12 @@ import {
   verifyZeroPiiLeak,
   rehydrateCloudResponse,
   generateStructuredClinicalLegalAnalysis,
+  answerDocumentQuestionByMode,
   type ScrubResult,
   type RehydrateResult,
   type StructuredClinicalLegalAnalysis,
-  type PiiCategoryId
+  type PiiCategoryId,
+  type AirlockRoutingMode
 } from "./piiAirlock";
 
 export { InferenceMode, InferenceSource };
@@ -250,10 +252,18 @@ export async function runHybridAirlockPipeline(params: {
   extraEntities?: Array<{ value: string; category: PiiCategoryId }>;
   tokenAliases?: Record<string, string>;
   stage1Mode?: InferenceMode;
+  routingPolicy?: AirlockRoutingMode;
   firebaseConfig?: FirebaseWebConfig;
   cloudModelName?: string;
 }): Promise<HybridPipelineExecutionResult> {
-  const stage1Mode = params.stage1Mode ?? InferenceMode.ONLY_ON_DEVICE;
+  const routingPolicy: AirlockRoutingMode =
+    params.routingPolicy ??
+    (params.stage1Mode === InferenceMode.PREFER_ON_DEVICE ? "prefer_on_device" : "hybrid_cloud");
+  const stage1Mode =
+    params.stage1Mode ??
+    (routingPolicy === "prefer_on_device"
+      ? InferenceMode.PREFER_ON_DEVICE
+      : InferenceMode.ONLY_ON_DEVICE);
   const firebaseConfig = params.firebaseConfig ?? DEFAULT_DEMO_FIREBASE_CONFIG;
   const cloudModelName = params.cloudModelName ?? "gemini-2.5-flash";
 
@@ -353,16 +363,25 @@ export async function runHybridAirlockPipeline(params: {
     notes: `SHA-256 receipt verified (${gateCheck.sanitizedSha256.slice(0, 16)}...). 0 raw PII bytes permitted across boundary.`
   };
 
-  // Stage 3: Cloud Reasoning on Strictly Sanitized Text
+  // Stage 3: Reasoning on Strictly Sanitized Text (respects routingPolicy)
   const tCloud0 = performance.now();
   let analysis = generateStructuredClinicalLegalAnalysis(
     scrubResult.sanitizedText,
-    scrubResult.vaultEntries
+    scrubResult.vaultEntries,
+    routingPolicy
   );
-  let cloudSource: InferenceSource = InferenceSource.IN_CLOUD;
-  let stage3Notes = "Cloud Gemini 2.5 Flash analyzed pseudonymized [PII_*] payload (0 raw PII bytes transmitted).";
+  let cloudSource: InferenceSource =
+    routingPolicy === "airgapped_local_only"
+      ? InferenceSource.ON_DEVICE
+      : InferenceSource.IN_CLOUD;
+  let stage3Notes =
+    routingPolicy === "airgapped_local_only"
+      ? "Offline Air-Gapped Enclave: 100% of synthesis executed in local device RAM (0 B sent to cloud)."
+      : routingPolicy === "prefer_on_device"
+      ? "PREFER_ON_DEVICE: Primary on-device Gemini Nano 4 triage with hybrid verification over [PII_*] tokens."
+      : "Cloud Gemini 2.5 Flash analyzed pseudonymized [PII_*] payload (0 raw PII bytes transmitted).";
 
-  if (ctx.isLiveCloud) {
+  if (routingPolicy !== "airgapped_local_only" && ctx.isLiveCloud) {
     try {
       const cloudPrompt = [
         "You are a clinical pharmacologist and healthcare regulatory counsel.",
@@ -388,7 +407,7 @@ export async function runHybridAirlockPipeline(params: {
         err instanceof Error ? err.message.slice(0, 60) : "offline"
       }).`;
     }
-  } else if (typeof window !== "undefined") {
+  } else if (routingPolicy !== "airgapped_local_only" && typeof window !== "undefined") {
     // Try backend /api/airlock/analyze-sanitized endpoint
     try {
       const resp = await fetch("/api/airlock/analyze-sanitized", {
@@ -397,6 +416,7 @@ export async function runHybridAirlockPipeline(params: {
         body: JSON.stringify({
           sanitizedText: scrubResult.sanitizedText,
           sanitizedSha256: scrubResult.sanitizedSha256,
+          mode: routingPolicy,
           vaultTokens: scrubResult.vaultEntries.map((v) => ({
             token: v.token,
             category: v.category
@@ -428,12 +448,22 @@ export async function runHybridAirlockPipeline(params: {
 
   const stage3Telemetry: SdkTelemetryEvent = {
     stage: "STAGE_3_CLOUD_REASONING",
-    sdkMethod: `getGenerativeModel(ai, { mode: InferenceMode.ONLY_IN_CLOUD, inCloudParams: { model: "${cloudModelName}" } })`,
-    configuredMode: InferenceMode.ONLY_IN_CLOUD,
+    sdkMethod:
+      routingPolicy === "airgapped_local_only"
+        ? `getGenerativeModel(ai, { mode: InferenceMode.ONLY_ON_DEVICE })`
+        : routingPolicy === "prefer_on_device"
+        ? `getGenerativeModel(ai, { mode: InferenceMode.PREFER_ON_DEVICE, inCloudParams: { model: "${cloudModelName}" } })`
+        : `getGenerativeModel(ai, { mode: InferenceMode.ONLY_IN_CLOUD, inCloudParams: { model: "${cloudModelName}" } })`,
+    configuredMode:
+      routingPolicy === "airgapped_local_only"
+        ? InferenceMode.ONLY_ON_DEVICE
+        : routingPolicy === "prefer_on_device"
+        ? InferenceMode.PREFER_ON_DEVICE
+        : InferenceMode.ONLY_IN_CLOUD,
     effectiveInferenceSource: cloudSource,
     appCheckVerified: true,
     latencyMs: Math.max(2, Math.round(tCloud1 - tCloud0)),
-    outboundBytes: gateCheck.outboundByteSize,
+    outboundBytes: routingPolicy === "airgapped_local_only" ? 0 : gateCheck.outboundByteSize,
     cloudPiiBytes: 0,
     sanitizedSha256: gateCheck.sanitizedSha256,
     notes: stage3Notes
@@ -515,11 +545,15 @@ export interface HybridQaTurnResult {
   sections: QaAnswerSection[];
   latencyMs: number;
   zeroPiiVerified: boolean;
+  routingPolicy: AirlockRoutingMode;
+  engineBadge: string;
+  inferenceSource: "in_cloud" | "on_device";
 }
 
 /**
  * Scrubs a user's natural-language question locally against both existing document vault entries
- * and the 18-category airlock, verifies zero leaks, queries Cloud AI, and restores local names.
+ * and the 18-category airlock, verifies zero leaks, queries the selected Hybrid/Local/Cloud AI tier,
+ * and restores local names in browser RAM.
  */
 export async function askHybridDocumentQuestion(params: {
   sanitizedDocumentText: string;
@@ -535,10 +569,12 @@ export async function askHybridDocumentQuestion(params: {
     occurrences: number;
     byteLength: number;
   }>;
+  routingPolicy?: AirlockRoutingMode;
   firebaseConfig?: FirebaseWebConfig;
   cloudModelName?: string;
 }): Promise<HybridQaTurnResult> {
   const t0 = performance.now();
+  const routingPolicy: AirlockRoutingMode = params.routingPolicy ?? "hybrid_cloud";
   const firebaseConfig = params.firebaseConfig ?? DEFAULT_DEMO_FIREBASE_CONFIG;
   const cloudModelName = params.cloudModelName ?? "gemini-2.5-flash";
 
@@ -563,78 +599,93 @@ export async function askHybridDocumentQuestion(params: {
     throw new Error("ZERO_PII_GATE_VIOLATION: Blocked unredacted PII in question.");
   }
 
-  const ctx = initializePiiZeroFirebase(firebaseConfig, InferenceMode.ONLY_ON_DEVICE, cloudModelName);
-  let intro = "I've reviewed the document and here's the analysis:";
+  const localFallback = answerDocumentQuestionByMode({
+    sanitizedText: params.sanitizedDocumentText,
+    sanitizedQuestion: safeQuestion,
+    vaultEntries: mergedVault,
+    routingPolicy
+  });
+
+  let intro = localFallback.intro;
+  let engineBadge = localFallback.engineBadge;
+  let inferenceSource: "in_cloud" | "on_device" = localFallback.inferenceSource;
   let rawSections: Array<{ heading: string; body: string }> = [];
 
-  if (ctx.isLiveCloud) {
-    try {
-      const prompt = [
-        "Answer the user's question about this de-identified document.",
-        "Keep every [PII_*] placeholder token intact so the client can restore names locally.",
-        "Return 3 concise sections formatted as '### Heading\\nExplanation'.",
-        "",
-        "Question: " + safeQuestion,
-        "",
-        "Document:\n" + params.sanitizedDocumentText
-      ].join("\n");
-      const res = await ctx.stage3CloudModel.generateContent(prompt);
-      const text = res.response.text().trim();
-      if (text.length > 30) {
-        const blocks = text.split(/^###\s+/m).filter(Boolean);
-        rawSections = blocks.slice(0, 4).map((b, i) => {
-          const nl = b.indexOf("\n");
-          if (nl === -1) return { heading: `Key Point ${i + 1}`, body: b.trim() };
-          return { heading: b.slice(0, nl).trim(), body: b.slice(nl + 1).trim() };
-        });
-      }
-    } catch {
-      // Fall through to server/deterministic
-    }
-  }
-
-  if (rawSections.length === 0 && typeof window !== "undefined") {
-    try {
-      const resp = await fetch("/api/airlock/ask-sanitized", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sanitizedText: params.sanitizedDocumentText,
-          sanitizedQuestion: safeQuestion,
-          vaultTokens: mergedVault.map((v) => ({ token: v.token, category: v.category }))
-        })
-      });
-      if (resp.ok) {
-        const data = (await resp.json()) as {
-          intro?: string;
-          sections?: Array<{ heading: string; body: string }>;
-        };
-        if (data.intro) intro = data.intro;
-        if (data.sections && data.sections.length > 0) {
-          rawSections = data.sections;
-        }
-      }
-    } catch {
-      // Fall through to deterministic local builder
-    }
-  }
-
-  if (rawSections.length === 0) {
-    const fallback = generateStructuredClinicalLegalAnalysis(
-      params.sanitizedDocumentText,
-      mergedVault
+  // In strict 100% Local Air-Gapped mode, never transmit to cloud APIs
+  if (routingPolicy === "airgapped_local_only") {
+    rawSections = localFallback.sections;
+  } else {
+    const ctx = initializePiiZeroFirebase(
+      firebaseConfig,
+      routingPolicy === "prefer_on_device"
+        ? InferenceMode.PREFER_ON_DEVICE
+        : InferenceMode.ONLY_ON_DEVICE,
+      cloudModelName
     );
-    intro = `I've reviewed the ${fallback.documentClassification.toLowerCase()} and here's the analysis:`;
-    rawSections = [
-      ...fallback.pharmacovigilanceOrClauseAlerts.map((a) => ({
-        heading: a.title,
-        body: `${a.mechanismOrClause} Recommended action: ${a.recommendation}`
-      })),
-      {
-        heading: "Other Key Points",
-        body: fallback.executiveSummary
+
+    if (ctx.isLiveCloud) {
+      try {
+        const targetModel =
+          routingPolicy === "prefer_on_device" ? ctx.stage1Model : ctx.stage3CloudModel;
+        const prompt = [
+          "Answer the user's specific question about this de-identified document.",
+          "Keep every [PII_*] or [PATIENT_*] or [COMPANY_*] placeholder token intact so the client can restore names locally.",
+          "Return 3 concise sections formatted as '### Heading\\nExplanation'.",
+          "",
+          "Routing Mode: " + routingPolicy,
+          "Question: " + safeQuestion,
+          "",
+          "Document:\n" + params.sanitizedDocumentText
+        ].join("\n");
+        const res = await targetModel.generateContent(prompt);
+        const text = res.response.text().trim();
+        if (text.length > 30) {
+          const blocks = text.split(/^###\s+/m).filter(Boolean);
+          rawSections = blocks.slice(0, 4).map((b, i) => {
+            const nl = b.indexOf("\n");
+            if (nl === -1) return { heading: `Key Point ${i + 1}`, body: b.trim() };
+            return { heading: b.slice(0, nl).trim(), body: b.slice(nl + 1).trim() };
+          });
+        }
+      } catch {
+        // Fall through to server/deterministic
       }
-    ];
+    }
+
+    if (rawSections.length === 0 && typeof window !== "undefined") {
+      try {
+        const resp = await fetch("/api/airlock/ask-sanitized", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sanitizedText: params.sanitizedDocumentText,
+            sanitizedQuestion: safeQuestion,
+            mode: routingPolicy,
+            vaultTokens: mergedVault.map((v) => ({ token: v.token, category: v.category }))
+          })
+        });
+        if (resp.ok) {
+          const data = (await resp.json()) as {
+            intro?: string;
+            engineBadge?: string;
+            inferenceSource?: "in_cloud" | "on_device";
+            sections?: Array<{ heading: string; body: string }>;
+          };
+          if (data.intro) intro = data.intro;
+          if (data.engineBadge) engineBadge = data.engineBadge;
+          if (data.inferenceSource) inferenceSource = data.inferenceSource;
+          if (data.sections && data.sections.length > 0) {
+            rawSections = data.sections;
+          }
+        }
+      } catch {
+        // Fall through to question-aware deterministic local builder
+      }
+    }
+
+    if (rawSections.length === 0) {
+      rawSections = localFallback.sections;
+    }
   }
 
   const sections: QaAnswerSection[] = rawSections.map((sec) => ({
@@ -648,7 +699,10 @@ export async function askHybridDocumentQuestion(params: {
     intro: rehydrateCloudResponse(intro, mergedVault).rehydratedText,
     sections,
     latencyMs: Math.max(2, Math.round(performance.now() - t0)),
-    zeroPiiVerified: true
+    zeroPiiVerified: true,
+    routingPolicy,
+    engineBadge,
+    inferenceSource
   };
 }
 

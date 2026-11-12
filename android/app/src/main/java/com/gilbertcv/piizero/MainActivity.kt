@@ -164,15 +164,46 @@ fun PiiZeroReferenceApp(posture: FoldablePostureState) {
     var rawText by remember { mutableStateOf(CLINICAL_SAMPLE) }
     var rehydrateEnabled by remember { mutableStateOf(true) }
     var queryDraft by remember { mutableStateOf("") }
+    var lastAskedQuestion by remember { mutableStateOf<String?>(null) }
     var qaResponse by remember { mutableStateOf<String?>(null) }
     var pipelineOutput by remember { mutableStateOf<AirlockPipelineOutput?>(null) }
 
-    fun triggerPipeline(text: String, mode: HybridInferenceMode, domain: ComplianceDomain) {
+    fun triggerPipeline(
+        text: String,
+        mode: HybridInferenceMode,
+        domain: ComplianceDomain,
+        rehydrate: Boolean = rehydrateEnabled,
+        activeQuestion: String? = lastAskedQuestion
+    ) {
         scope.launch {
             pipelineOutput = FirebaseHybridBridge.executeHybridPipeline(
                 rawText = text,
                 mode = mode,
                 domain = domain
+            )
+            if (!activeQuestion.isNullOrBlank()) {
+                qaResponse = FirebaseHybridBridge.askDocumentQuestion(
+                    rawText = text,
+                    rawQuestion = activeQuestion,
+                    mode = mode,
+                    domain = domain,
+                    rehydrateEnabled = rehydrate
+                )
+            }
+        }
+    }
+
+    fun runQuestion(rawQ: String) {
+        val cleanQ = rawQ.replace(Regex("^[☰?👤⚖️]+\\s*"), "").trim().ifBlank { "Summarize this record" }
+        queryDraft = ""
+        lastAskedQuestion = cleanQ
+        scope.launch {
+            qaResponse = FirebaseHybridBridge.askDocumentQuestion(
+                rawText = rawText,
+                rawQuestion = cleanQ,
+                mode = selectedMode,
+                domain = selectedDomain,
+                rehydrateEnabled = rehydrateEnabled
             )
         }
     }
@@ -211,8 +242,9 @@ fun PiiZeroReferenceApp(posture: FoldablePostureState) {
                         onSelectDomain = { dom ->
                             selectedDomain = dom
                             rawText = if (dom == ComplianceDomain.CLINICAL) CLINICAL_SAMPLE else LEGAL_SAMPLE
+                            lastAskedQuestion = null
                             qaResponse = null
-                            triggerPipeline(rawText, selectedMode, dom)
+                            triggerPipeline(rawText, selectedMode, dom, rehydrateEnabled, null)
                         },
                         onSelectSubTab = { tab ->
                             if (tab == DocSubTab.PEEK) {
@@ -262,18 +294,21 @@ fun PiiZeroReferenceApp(posture: FoldablePostureState) {
                                 ExecutiveSynthesisRightColumn(
                                     output = pipelineOutput,
                                     selectedDomain = selectedDomain,
+                                    selectedMode = selectedMode,
                                     rehydrateEnabled = rehydrateEnabled,
                                     queryDraft = queryDraft,
                                     qaResponse = qaResponse,
-                                    onToggleRehydrate = { rehydrateEnabled = !rehydrateEnabled },
+                                    onSelectMode = { mode ->
+                                        selectedMode = mode
+                                        triggerPipeline(rawText, mode, selectedDomain, rehydrateEnabled, lastAskedQuestion)
+                                    },
+                                    onToggleRehydrate = {
+                                        val next = !rehydrateEnabled
+                                        rehydrateEnabled = next
+                                        triggerPipeline(rawText, selectedMode, selectedDomain, next, lastAskedQuestion)
+                                    },
                                     onQueryChange = { queryDraft = it },
-                                    onAskQuestion = { q ->
-                                        val cleanQ = q.ifBlank { "Summarize this record" }
-                                        queryDraft = ""
-                                        qaResponse =
-                                            "Sent to Cloud as: \"${cleanQ.replace("John Doe", "[PATIENT_1]")}\"\n\n" +
-                                                "• Findings: ${if (rehydrateEnabled) "John Doe" else "[PATIENT_1]"} presented with lumbar disc herniation symptoms on 10/23/2024; conservative physical therapy and 3-month orthopedic follow-up recommended."
-                                    }
+                                    onAskQuestion = { q -> runQuestion(q) }
                                 )
                             }
                         }
@@ -300,18 +335,21 @@ fun PiiZeroReferenceApp(posture: FoldablePostureState) {
                             ExecutiveSynthesisRightColumn(
                                 output = pipelineOutput,
                                 selectedDomain = selectedDomain,
+                                selectedMode = selectedMode,
                                 rehydrateEnabled = rehydrateEnabled,
                                 queryDraft = queryDraft,
                                 qaResponse = qaResponse,
-                                onToggleRehydrate = { rehydrateEnabled = !rehydrateEnabled },
+                                onSelectMode = { mode ->
+                                    selectedMode = mode
+                                    triggerPipeline(rawText, mode, selectedDomain, rehydrateEnabled, lastAskedQuestion)
+                                },
+                                onToggleRehydrate = {
+                                    val next = !rehydrateEnabled
+                                    rehydrateEnabled = next
+                                    triggerPipeline(rawText, selectedMode, selectedDomain, next, lastAskedQuestion)
+                                },
                                 onQueryChange = { queryDraft = it },
-                                onAskQuestion = { q ->
-                                    val cleanQ = q.ifBlank { "Summarize this record" }
-                                    queryDraft = ""
-                                    qaResponse =
-                                        "Sent to Cloud as: \"${cleanQ.replace("John Doe", "[PATIENT_1]")}\"\n\n" +
-                                            "• Findings: ${if (rehydrateEnabled) "John Doe" else "[PATIENT_1]"} presented with lumbar disc herniation symptoms on 10/23/2024; physical therapy and 3-month follow-up recommended."
-                                }
+                                onAskQuestion = { q -> runQuestion(q) }
                             )
                         }
                     }
@@ -1105,14 +1143,21 @@ private fun GreenCheckLine(text: String) {
 private fun ExecutiveSynthesisRightColumn(
     output: AirlockPipelineOutput?,
     selectedDomain: ComplianceDomain,
+    selectedMode: HybridInferenceMode,
     rehydrateEnabled: Boolean,
     queryDraft: String,
     qaResponse: String?,
+    onSelectMode: (HybridInferenceMode) -> Unit,
     onToggleRehydrate: () -> Unit,
     onQueryChange: (String) -> Unit,
     onAskQuestion: (String) -> Unit
 ) {
     val isMedical = selectedDomain == ComplianceDomain.CLINICAL
+    val activeBadge = when (selectedMode) {
+        HybridInferenceMode.ONLY_ON_DEVICE -> "LOCAL ENCLAVE · 0 B CLOUD"
+        HybridInferenceMode.PREFER_ON_DEVICE -> "NANO 4 → FLASH HYBRID"
+        HybridInferenceMode.ONLY_IN_CLOUD -> "GEMINI 2.5 FLASH"
+    }
 
     // 1. Dark Navy Executive Synthesis Card (Matches Reference Picture 2)
     Column(
@@ -1133,21 +1178,31 @@ private fun ExecutiveSynthesisRightColumn(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     Text("✦", fontSize = 15.sp, color = Color(0xFF60A5FA))
                     Text(
-                        text = "Executive Synthesis",
-                        fontSize = 17.sp,
+                        text = when (selectedMode) {
+                            HybridInferenceMode.ONLY_ON_DEVICE -> "On-Device Local Summary"
+                            HybridInferenceMode.PREFER_ON_DEVICE -> "Hybrid Executive Synthesis"
+                            HybridInferenceMode.ONLY_IN_CLOUD -> "Cloud Executive Synthesis"
+                        },
+                        fontSize = 16.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
@@ -1156,12 +1211,42 @@ private fun ExecutiveSynthesisRightColumn(
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = "GEMINI 2.5 FLASH",
+                            text = activeBadge,
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 9.5.sp,
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFFCBD5E1)
                         )
+                    }
+
+                    listOf(
+                        HybridInferenceMode.PREFER_ON_DEVICE to "HYBRID",
+                        HybridInferenceMode.ONLY_ON_DEVICE to "LOCAL",
+                        HybridInferenceMode.ONLY_IN_CLOUD to "CLOUD"
+                    ).forEach { (m, label) ->
+                        val isSelected = selectedMode == m
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(
+                                    if (isSelected) BrandBlue else Color(0xFF15233E)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isSelected) Color(0xFF60A5FA) else Color(0xFF2D436B),
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .clickable { onSelectMode(m) }
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) Color.White else Color(0xFFCBD5E1)
+                            )
+                        }
                     }
 
                     Box(
@@ -1175,7 +1260,7 @@ private fun ExecutiveSynthesisRightColumn(
                         Text(
                             text = if (rehydrateEnabled) "RESTORED" else "TOKENS",
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 9.5.sp,
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFBFDBFE)
                         )
@@ -1215,13 +1300,17 @@ private fun ExecutiveSynthesisRightColumn(
             }
         }
 
-        val subjectDisplay = if (rehydrateEnabled) "John Doe" else "[PATIENT_1]"
+        val subjectDisplay = if (rehydrateEnabled) "John Doe" else "[PII_PERSON_1]"
+        val synthesisText = output?.let {
+            if (rehydrateEnabled) it.localRehydratedSummary else it.cloudRedactedSummary
+        } ?: if (isMedical) {
+            "The patient, $subjectDisplay, a 46-year-old male, presented with ongoing back pain. The medical record indicates a possible disc herniation and recommends physical therapy with a follow-up in 3 months."
+        } else {
+            "Reviewed Non-Disclosure Agreement for $subjectDisplay. Includes a 12-month non-compete clause, 5-year confidentiality obligation, and liability cap of ${if (rehydrateEnabled) "$1,000,000" else "[PII_SETTLEMENT_1]"}."
+        }
+
         Text(
-            text = if (isMedical) {
-                "The patient, $subjectDisplay, a 46-year-old male, presented with ongoing back pain. The medical record indicates a possible disc herniation and recommends physical therapy with a follow-up in 3 months."
-            } else {
-                "Reviewed Non-Disclosure Agreement for $subjectDisplay. Includes a 12-month non-compete clause, 5-year confidentiality obligation, and liability cap of ${if (rehydrateEnabled) "$1,000,000" else "[SETTLEMENT_1]"}."
-            },
+            text = synthesisText,
             fontSize = 13.sp,
             lineHeight = 19.sp,
             color = Color(0xFFE2E8F0)
@@ -1282,16 +1371,18 @@ private fun ExecutiveSynthesisRightColumn(
             }
             Column {
                 Text(
-                    text = "RAM Rehydration",
+                    text = "RAM Rehydration (${selectedMode.name})",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = MintBannerFg
                 )
                 Text(
-                    text = if (rehydrateEnabled) {
-                        "Identifiers restored locally in browser/device memory; Cloud AI processed tokens only."
+                    text = if (selectedMode == HybridInferenceMode.ONLY_ON_DEVICE) {
+                        "Executed 100% in local device RAM (0 bytes sent to cloud)."
+                    } else if (rehydrateEnabled) {
+                        "Identifiers restored locally in device memory; AI processed tokens only."
                     } else {
-                        "Viewing raw zero-PII tokens returned by Cloud AI prior to local rehydration."
+                        "Viewing raw zero-PII tokens returned by AI prior to local rehydration."
                     },
                     fontSize = 11.sp,
                     lineHeight = 15.sp,
@@ -1307,9 +1398,36 @@ private fun ExecutiveSynthesisRightColumn(
             color = Color.White
         )
 
-        NavyActionRow(num = "01", text = if (isMedical) "Continue physical therapy" else "Narrow non-compete geographic scope")
-        NavyActionRow(num = "02", text = if (isMedical) "Monitor for improvement" else "Confirm mutual consequential damages waiver")
-        NavyActionRow(num = "03", text = if (isMedical) "Follow up in 3 months" else "Retain standard trade-secret carve-outs")
+        val action1 = when {
+            isMedical && selectedMode == HybridInferenceMode.ONLY_ON_DEVICE ->
+                "Local Rule #1: Continue physical therapy & analgesic regimen"
+            isMedical && selectedMode == HybridInferenceMode.PREFER_ON_DEVICE ->
+                "Nano 4 Triage: Lumbar stabilization & physical therapy"
+            isMedical ->
+                "Continue physical therapy"
+            selectedMode == HybridInferenceMode.ONLY_ON_DEVICE ->
+                "Local Rule #1: Narrow US-wide 12-month non-compete scope"
+            else ->
+                "Narrow non-compete geographic scope"
+        }
+        val action2 = when {
+            isMedical && selectedMode == HybridInferenceMode.ONLY_ON_DEVICE ->
+                "Local Rule #2: Track radicular symptoms & motor function"
+            isMedical ->
+                "Monitor for improvement"
+            else ->
+                "Confirm mutual consequential damages waiver"
+        }
+        val action3 = when {
+            isMedical ->
+                "Follow up in 3 months (${if (rehydrateEnabled) "Dr. Sarah Johnson" else "[PII_PERSON_2]"})"
+            else ->
+                "Retain standard trade-secret carve-outs"
+        }
+
+        NavyActionRow(num = "01", text = action1)
+        NavyActionRow(num = "02", text = action2)
+        NavyActionRow(num = "03", text = action3)
 
         if (qaResponse != null) {
             Box(
@@ -1365,11 +1483,27 @@ private fun ExecutiveSynthesisRightColumn(
             }
         }
 
+        val chips = if (isMedical) {
+            listOf(
+                "☰ Summarize this record",
+                "? What are the key findings?",
+                "👤 Who is the provider & follow-up?"
+            )
+        } else {
+            listOf(
+                "☰ Summarize this agreement",
+                "? What is the non-compete scope?",
+                "⚖️ What is the liability cap?"
+            )
+        }
+
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            listOf("☰ Summarize this record", "? What are the key findings?").forEach { chip ->
+            chips.forEach { chip ->
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
