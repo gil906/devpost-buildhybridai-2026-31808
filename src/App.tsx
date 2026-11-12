@@ -8,7 +8,22 @@ import {
   HyperText,
   NumberTicker,
   ShimmerButton,
-  HybridAirlockBridge
+  HybridAirlockBridge,
+  AnimatedShinyText,
+  AnimatedThemeToggler,
+  GlyphMatrix,
+  DiaTextReveal,
+  GlareHover,
+  Marquee,
+  RippleButton,
+  InteractiveHoverButton,
+  AnimatedCircularProgressBar,
+  Terminal,
+  TypingAnimation,
+  AnimatedSpan,
+  CodeComparison,
+  SafariMockup,
+  AndroidMockup
 } from "./components/MagicUiPrimitives";
 import {
   PII_CATEGORIES,
@@ -569,6 +584,25 @@ export const App: React.FC = () => {
   const [askFocused, setAskFocused] = useState<boolean>(false);
   const [scanPulseKey, setScanPulseKey] = useState<number>(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [uiTheme, setUiTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "light";
+    const qTheme = new URLSearchParams(window.location.search).get("theme");
+    if (qTheme === "dark" || qTheme === "light") return qTheme;
+    try {
+      const saved = localStorage.getItem("piizero-theme");
+      if (saved === "dark" || saved === "light") return saved;
+    } catch {
+      // ignore
+    }
+    return "light";
+  });
+
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.classList.toggle("dark", uiTheme === "dark");
+      document.documentElement.setAttribute("data-theme", uiTheme);
+    }
+  }, [uiTheme]);
 
   useEffect(() => {
     setScanPulseKey((k) => k + 1);
@@ -1681,7 +1715,9 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        <h2 className="doc-report-title">{currentDocMeta.reportTitle}</h2>
+        <h2 className="doc-report-title">
+          <DiaTextReveal key={`${mode}-${currentDocMeta.id}`} text={currentDocMeta.reportTitle} duration={0.75} />
+        </h2>
 
         {blocks.map((blk, bIdx) => {
           if (blk.kind === "divider") {
@@ -1735,22 +1771,40 @@ export const App: React.FC = () => {
         <aside className="pz-sidebar" aria-label="Primary navigation">
           <div className="sidebar-top">
             <div className="sidebar-brand-row">
-              <button
-                type="button"
-                className="brand-lockup"
-                title="Toggle Workspace / Overview"
-                onClick={() => setSidebarNav((prev) => (prev === "document" ? "home" : "document"))}
-              >
-                <ShieldSparkleLogo />
-                <div className="brand-text-group">
-                  <span className="brand-wordmark">PII-Zero</span>
-                  <span className="brand-subtag mono">HYBRID AIRLOCK</span>
-                </div>
-              </button>
+              <div className="brand-row-main">
+                <button
+                  type="button"
+                  className="brand-lockup"
+                  title="Toggle Workspace / Overview"
+                  onClick={() => setSidebarNav((prev) => (prev === "document" ? "home" : "document"))}
+                >
+                  <ShieldSparkleLogo />
+                  <div className="brand-text-group">
+                    <span className="brand-wordmark">PII-Zero</span>
+                    <AnimatedShinyText shimmerWidth={64} className="brand-subtag mono">
+                      HYBRID AIRLOCK
+                    </AnimatedShinyText>
+                  </div>
+                </button>
+                <AnimatedThemeToggler
+                  theme={uiTheme}
+                  onThemeChange={setUiTheme}
+                  className="sidebar-theme-btn"
+                />
+              </div>
 
-              <div className="mobile-trust-pill" title="Pre-send gatekeeper verified 0 raw PII bytes leave your device">
-                <span className="live-emerald-dot" />
-                <span className="mono">0 B PII EGRESS</span>
+              <div className="mobile-trust-actions">
+                <div className="mobile-trust-pill" title="Pre-send gatekeeper verified 0 raw PII bytes leave your device">
+                  <span className="live-emerald-dot" />
+                  <AnimatedShinyText shimmerWidth={68} className="mono">
+                    0 B PII EGRESS
+                  </AnimatedShinyText>
+                </div>
+                <AnimatedThemeToggler
+                  theme={uiTheme}
+                  onThemeChange={setUiTheme}
+                  className="mobile-theme-btn"
+                />
               </div>
             </div>
 
@@ -1853,6 +1907,12 @@ export const App: React.FC = () => {
 
           <div className="sidebar-bottom">
             <div className="sidebar-enclave-card">
+              <GlyphMatrix
+                cellSize={12}
+                color="#10b981"
+                fadeBottom={0.35}
+                className="enclave-card-glyphs"
+              />
               <div className="sidebar-enclave-row">
                 <span className="live-emerald-dot" />
                 <span className="mono">ZERO-TRUST ENCLAVE</span>
@@ -2023,6 +2083,40 @@ export const App: React.FC = () => {
               onToggle={() => setHybridInspectorOpen((v) => !v)}
             />
           </header>
+
+          {/* Magic UI Marquee — Live 18-Category HIPAA Safe Harbor & Enclave Telemetry Ribbon */}
+          <div className="enclave-marquee-strip" aria-label="Live zero-trust enclave telemetry">
+            <span className="marquee-pin-label mono hide-xs">
+              <span className="live-emerald-dot" />
+              LIVE TELEMETRY
+            </span>
+            <Marquee pauseOnHover durationSec={34} repeat={3}>
+              <span className="marquee-chip mono">
+                <strong>§164.514(b)</strong> 18/18 SAFE HARBOR RULES ARMED
+              </span>
+              <span className="marquee-dot">·</span>
+              <span className="marquee-chip mono">
+                STAGE 1: <strong>{stage1Mode === InferenceMode.ONLY_ON_DEVICE ? "ONLY_ON_DEVICE" : "PREFER_ON_DEVICE"}</strong>
+              </span>
+              <span className="marquee-dot">·</span>
+              <span className="marquee-chip mono">
+                VAULTED SPANS: <strong>{totalMasked} IN LOCAL RAM</strong>
+              </span>
+              <span className="marquee-dot">·</span>
+              <span className="marquee-chip emerald mono">
+                CLOUD EGRESS: <strong>0 RAW PII BYTES</strong>
+              </span>
+              <span className="marquee-dot">·</span>
+              <span className="marquee-chip mono">
+                RECEIPT: <strong>SHA-256 #{shortSha || "VERIFIED"}</strong>
+              </span>
+              <span className="marquee-dot">·</span>
+              <span className="marquee-chip mono">
+                STAGE 3: <strong>{routingPolicy === "airgapped_local_only" ? "AIR-GAPPED OFFLINE" : `${cloudModelName.toUpperCase()} + APP CHECK`}</strong>
+              </span>
+              <span className="marquee-dot">·</span>
+            </Marquee>
+          </div>
 
           {/* Animated Collapsible Firebase AI Logic Hybrid Routing & Runtime Telemetry Drawer */}
           <AnimatePresence initial={false}>
@@ -2267,6 +2361,12 @@ export const App: React.FC = () => {
                         className="mobile-peek-bar"
                         role="status"
                       >
+                        <GlyphMatrix
+                          cellSize={11}
+                          color="#38bdf8"
+                          fadeBottom={0}
+                          className="peek-bar-glyphs"
+                        />
                         <span className="mobile-peek-badge mono">VAULT</span>
                         <span className="mobile-peek-text">
                           <strong>{maskDisplayValue(activePeekEntry, !hiddenVaultTokens.has(activePeekEntry.token))}</strong>
@@ -2474,46 +2574,70 @@ export const App: React.FC = () => {
                   <BlurFade key={`audit-${selectedDocId}`} className="doc-sheet-wrap" style={{ overflowY: "auto" }} duration={0.22} offset={4}>
                     <div className="doc-paper" style={{ maxHeight: "none" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
-                        <div>
-                          <h2 className="doc-report-title" style={{ marginBottom: "4px" }}>
-                            Zero-Trust Pre-Send Cryptographic Audit
-                          </h2>
-                          <p style={{ fontSize: "12.5px", color: "var(--ink-500)" }}>
-                            Receipt <span className="mono">#{shortSha}</span> · Verified before opening HTTPS socket
-                          </p>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <AnimatedCircularProgressBar
+                            value={100}
+                            size={46}
+                            strokeWidth={9}
+                            gaugePrimaryColor="#10b981"
+                          />
+                          <div>
+                            <h2 className="doc-report-title" style={{ marginBottom: "3px" }}>
+                              Zero-Trust Pre-Send Cryptographic Audit
+                            </h2>
+                            <p style={{ fontSize: "12px", color: "var(--ink-500)" }}>
+                              Receipt <HyperText className="mono" text={`#${shortSha}`} /> · Verified prior to HTTPS socket
+                            </p>
+                          </div>
                         </div>
-                        <button
+                        <InteractiveHoverButton
                           type="button"
-                          className="btn-primary-pill"
                           onClick={handleSimulateLeakAttempt}
                         >
-                          Test Pre-Send Leak Blocker
-                        </button>
+                          Test Leak Blocker
+                        </InteractiveHoverButton>
                       </div>
 
-                      <div className="kpi-cards-grid" style={{ marginBottom: "16px" }}>
-                        <div className="kpi-insight-card">
-                          <span className="kpi-card-label">Stage 1 · On-Device</span>
+                      <div className="kpi-cards-grid" style={{ marginBottom: "14px" }}>
+                        <GlareHover className="kpi-insight-card">
+                          <span className="kpi-card-label mono">Stage 1 · On-Device</span>
                           <span className="kpi-card-value">{totalMasked} Masked</span>
                           <span className="kpi-card-sub">
                             {stage1Mode === InferenceMode.ONLY_ON_DEVICE ? "ONLY_ON_DEVICE" : "PREFER_ON_DEVICE"}
                           </span>
-                        </div>
-                        <div className="kpi-insight-card">
-                          <span className="kpi-card-label">Stage 2 · Gatekeeper</span>
-                          <span className="kpi-card-value" style={{ color: "#16a34a" }}>0 Bytes Leaked</span>
+                        </GlareHover>
+                        <GlareHover className="kpi-insight-card">
+                          <span className="kpi-card-label mono">Stage 2 · Gatekeeper</span>
+                          <span className="kpi-card-value" style={{ color: "#059669" }}>0 Bytes Leaked</span>
                           <span className="kpi-card-sub">
                             {telemetry?.sanitizedOutputBytes ?? 0} B safe payload
                           </span>
-                        </div>
-                        <div className="kpi-insight-card">
-                          <span className="kpi-card-label">Stage 3 · Cloud AI</span>
+                        </GlareHover>
+                        <GlareHover className="kpi-insight-card">
+                          <span className="kpi-card-label mono">Stage 3 · Cloud AI</span>
                           <span className="kpi-card-value">Gemini 2.5</span>
                           <span className="kpi-card-sub">App Check Verified</span>
-                        </div>
+                        </GlareHover>
                       </div>
 
-                      <h3 className="doc-section-heading">18 HIPAA Safe Harbor &amp; Legal Privilege Rules</h3>
+                      <Terminal title={`airlock-trace · ${currentDocMeta.fileName}`} className="audit-terminal">
+                        <TypingAnimation duration={14}>
+                          {`$ firebase-ai scrub --mode=${stage1Mode === InferenceMode.ONLY_ON_DEVICE ? "ONLY_ON_DEVICE" : "PREFER_ON_DEVICE"} "${currentDocMeta.fileName}"`}
+                        </TypingAnimation>
+                        <AnimatedSpan className="term-ok">
+                          {`✓ Vaulted ${totalMasked} regulated PII spans in browser RAM (0 network calls)`}
+                        </AnimatedSpan>
+                        <AnimatedSpan className="term-info">
+                          {`✓ verifyZeroPiiLeak() passed · SHA-256 #${shortSha || "VERIFIED"} · 0 raw PII bytes`}
+                        </AnimatedSpan>
+                        <AnimatedSpan className="term-ok">
+                          {routingPolicy === "airgapped_local_only"
+                            ? "✓ Air-Gapped mode active: Stage 3 cloud socket suppressed"
+                            : `✓ Transmitted ${telemetry?.sanitizedOutputBytes ?? 0} B tokenized text to ${cloudModelName} & rehydrated locally`}
+                        </AnimatedSpan>
+                      </Terminal>
+
+                      <h3 className="doc-section-heading" style={{ marginTop: "14px" }}>18 HIPAA Safe Harbor &amp; Legal Privilege Rules</h3>
                       <div style={{ maxHeight: "290px", overflowY: "auto", border: "1px solid #e5ecf6", borderRadius: "10px" }}>
                         <table className="vault-table">
                           <thead>
@@ -2558,23 +2682,21 @@ export const App: React.FC = () => {
                     </span>
                   </span>
 
-                  <button
+                  <InteractiveHoverButton
                     type="button"
-                    className="footer-link-btn"
+                    className="compact"
                     onClick={() =>
                       setLeftTab((prev) =>
                         prev === "document" ? "redacted" : prev === "redacted" ? "audit" : "document"
                       )
                     }
                   >
-                    <span>
-                      {leftTab === "document"
-                        ? "Inspect Payload →"
-                        : leftTab === "redacted"
-                        ? "Crypto Audit →"
-                        : "Source Doc →"}
-                    </span>
-                  </button>
+                    {leftTab === "document"
+                      ? "Inspect Payload"
+                      : leftTab === "redacted"
+                      ? "Crypto Audit"
+                      : "Source Doc"}
+                  </InteractiveHoverButton>
                 </div>
               </MagicCard>
 
@@ -2653,15 +2775,30 @@ export const App: React.FC = () => {
                     <BlurFade key={`insights-${selectedDocId}-${rehydrateRight ? "r" : "t"}`} className="insights-stack" duration={0.22} offset={5}>
                       <div className="section-heading-row">
                         <h2 className="section-h3">
-                          {routingPolicy === "airgapped_local_only"
-                            ? "On-Device Local Summary (Air-Gapped)"
-                            : "Executive Synthesis"}
+                          <DiaTextReveal
+                            key={`${selectedDocId}-${routingPolicy}`}
+                            text={
+                              routingPolicy === "airgapped_local_only"
+                                ? "On-Device Local Summary"
+                                : "Executive Synthesis"
+                            }
+                            duration={0.8}
+                          />
                         </h2>
-                        {routingPolicy === "airgapped_local_only" ? (
-                          <span className="offline-mode-tag">0 Network Calls</span>
-                        ) : (
-                          <span className="enclave-mini-tag mono">GEMINI 2.5 FLASH</span>
-                        )}
+                        <div className="synthesis-badges">
+                          <AnimatedCircularProgressBar
+                            value={100}
+                            size={30}
+                            strokeWidth={10}
+                            gaugePrimaryColor="#10b981"
+                            className="mini-zero-gauge"
+                          />
+                          {routingPolicy === "airgapped_local_only" ? (
+                            <span className="offline-mode-tag">0 Network Calls</span>
+                          ) : (
+                            <span className="enclave-mini-tag mono">GEMINI 2.5 FLASH</span>
+                          )}
+                        </div>
                       </div>
 
                       <div className="summary-prose">
@@ -2670,26 +2807,27 @@ export const App: React.FC = () => {
 
                       <div className="section-heading-row" style={{ marginTop: "2px" }}>
                         <span className="section-kicker mono">STRUCTURED TELEMETRY</span>
+                        <span className="section-kicker mono" style={{ color: "var(--signal-emerald)" }}>ZERO-LEAK VERIFIED</span>
                       </div>
 
                       <div className="kpi-cards-grid">
-                        <div className="kpi-insight-card">
+                        <GlareHover className="kpi-insight-card">
                           <span className="kpi-card-label mono">{currentDocMeta.kpi1Label}</span>
                           <span className="kpi-card-value">{currentDocMeta.kpi1Main}</span>
                           <span className="kpi-card-sub">{primarySubjectName}</span>
-                        </div>
+                        </GlareHover>
 
-                        <div className="kpi-insight-card">
+                        <GlareHover className="kpi-insight-card" glareColor="rgba(37, 99, 235, 0.13)">
                           <span className="kpi-card-label mono">{currentDocMeta.kpi2Label}</span>
                           <span className="kpi-card-value">{currentDocMeta.kpi2Main}</span>
                           <span className="kpi-card-sub">{currentDocMeta.kpi2Sub}</span>
-                        </div>
+                        </GlareHover>
 
-                        <div className="kpi-insight-card">
+                        <GlareHover className="kpi-insight-card">
                           <span className="kpi-card-label mono">{currentDocMeta.kpi3Label}</span>
                           <span className="kpi-card-value">{currentDocMeta.kpi3Main}</span>
                           <span className="kpi-card-sub">{currentDocMeta.kpi3Sub}</span>
-                        </div>
+                        </GlareHover>
                       </div>
 
                       <div className="restored-banner">
@@ -2842,7 +2980,7 @@ export const App: React.FC = () => {
 
                     <div className="prompt-chips-row">
                       {currentDocMeta.quickChips.map((chip) => (
-                        <button
+                        <RippleButton
                           key={chip}
                           type="button"
                           className="prompt-chip"
@@ -2850,7 +2988,7 @@ export const App: React.FC = () => {
                         >
                           <span>{chip}</span>
                           <span className="chip-arrow" aria-hidden="true">↗</span>
-                        </button>
+                        </RippleButton>
                       ))}
                     </div>
                   </div>
@@ -3259,13 +3397,21 @@ export const App: React.FC = () => {
 
                   {/* Raw Prompt Editor */}
                   <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "5px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", gap: "8px" }}>
                       <label style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink-900)" }}>
                         1. Raw Outbound Prompt / Email Draft (Device RAM Only)
                       </label>
-                      <span className="risk-pill raw">
-                        Raw Risk: {firewallEval.rawRiskScore}/100
-                      </span>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: "7px" }}>
+                        <AnimatedCircularProgressBar
+                          value={firewallEval.rawRiskScore}
+                          size={32}
+                          strokeWidth={10}
+                          gaugePrimaryColor="#e11d48"
+                        />
+                        <span className="risk-pill raw">
+                          Raw Risk: {firewallEval.rawRiskScore}/100
+                        </span>
+                      </div>
                     </div>
                     <textarea
                       className="doc-textarea"
@@ -3281,11 +3427,19 @@ export const App: React.FC = () => {
                       <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink-900)" }}>
                         2. Exact Payload Allowed Through Firewall
                       </span>
-                      <span className={"risk-pill " + (firewallEval.postScrubRiskScore === 0 ? "safe" : "raw")}>
-                        Post-Firewall Exposure: {firewallEval.postScrubRiskScore}/100
-                      </span>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: "7px" }}>
+                        <AnimatedCircularProgressBar
+                          value={100 - firewallEval.postScrubRiskScore}
+                          size={32}
+                          strokeWidth={10}
+                          gaugePrimaryColor="#10b981"
+                        />
+                        <span className={"risk-pill " + (firewallEval.postScrubRiskScore === 0 ? "safe" : "raw")}>
+                          Exposure: {firewallEval.postScrubRiskScore}/100
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ fontSize: "12.5px", lineHeight: 1.6, color: "var(--ink-700)", background: "#ffffff", border: "1px solid #e3ecf7", borderRadius: "10px", padding: "10px 12px" }}>
+                    <div className="firewall-safe-box">
                       {firewallEval.sanitizedPrompt}
                     </div>
                   </div>
@@ -3424,6 +3578,13 @@ export const App: React.FC = () => {
           {sidebarNav === "home" && (
             <main className="home-dashboard" aria-label="PII-Zero Home Overview">
               <section className="home-hero-card">
+                <GlyphMatrix
+                  cellSize={14}
+                  color="#10b981"
+                  fadeBottom={0.4}
+                  className="home-hero-glyphs"
+                />
+                <BorderBeam size={96} duration={8} />
                 <div className="home-hero-left">
                   <span className="home-big-check" aria-hidden="true">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
@@ -3432,18 +3593,17 @@ export const App: React.FC = () => {
                   </span>
                   <div>
                     <h1 style={{ fontFamily: "var(--font-display)", fontSize: "21px", fontWeight: 800, marginBottom: "4px" }}>
-                      Your data is protected
+                      <DiaTextReveal text="Zero-Trust Hybrid AI Enclave" duration={0.85} />
                     </h1>
-                    <p style={{ fontSize: "14px", color: "var(--ink-700)", marginBottom: "10px" }}>
+                    <p style={{ fontSize: "14px", color: "var(--ink-700)", marginBottom: "12px" }}>
                       Personal, medical, and legal identifiers are masked locally on your device with Gemini Nano + our 18-category HIPAA enclave before Cloud AI ever sees a word.
                     </p>
-                    <button
+                    <InteractiveHoverButton
                       type="button"
-                      className="footer-link-btn"
                       onClick={() => setSidebarNav("document")}
                     >
-                      <span>Open active document workspace →</span>
-                    </button>
+                      Open Active Workspace
+                    </InteractiveHoverButton>
                   </div>
                 </div>
               </section>
@@ -3669,7 +3829,12 @@ export const App: React.FC = () => {
 
               <section className="home-activity-card">
                 <div className="section-heading-row" style={{ marginBottom: "12px" }}>
-                  <h2 className="section-h3">Official SDK Integration Snippet</h2>
+                  <div>
+                    <h2 className="section-h3">Architecture Diff &amp; Official SDK Integration</h2>
+                    <p style={{ fontSize: "12px", color: "var(--ink-500)", marginTop: "2px" }}>
+                      Why raw cloud SDK calls violate HIPAA/privilege vs. PII-Zero’s 3-stage local-first airlock.
+                    </p>
+                  </div>
                   <div style={{ display: "flex", gap: "8px" }}>
                     <button
                       type="button"
@@ -3687,6 +3852,26 @@ export const App: React.FC = () => {
                     </button>
                   </div>
                 </div>
+
+                <div style={{ marginBottom: "14px" }}>
+                  <CodeComparison
+                    filename="hybridAirlock.ts"
+                    beforeLines={[
+                      { text: "const cloud = getGenerativeModel(ai, { model: 'gemini-2.5-flash' });" },
+                      { text: "// DANGER: Transmits raw patient SSN, MRN & names to cloud!", kind: "remove" },
+                      { text: "const res = await cloud.generateContent(rawMedicalChart);", kind: "remove" },
+                      { text: "return res.response.text();" }
+                    ]}
+                    afterLines={[
+                      { text: "const nano = getGenerativeModel(ai, { mode: InferenceMode.ONLY_ON_DEVICE });", kind: "add" },
+                      { text: "const { sanitizedText, vault } = await scrubLocally(nano, rawChart);", kind: "add" },
+                      { text: "assertZeroPiiLeak(sanitizedText, vault); // 0 raw PII bytes", kind: "add" },
+                      { text: "const res = await cloud.generateContent(sanitizedText);" },
+                      { text: "return rehydrateInRam(res.response.text(), vault);", kind: "add" }
+                    ]}
+                  />
+                </div>
+
                 <pre className="code-block">
                   {sdkLang === "ts" ? generateSdkCodeSnippet(stage1Mode, cloudModelName) : KOTLIN_SDK_SNIPPET}
                 </pre>
@@ -3711,14 +3896,14 @@ export const App: React.FC = () => {
                     </a>
                   </div>
 
-                  <div style={{ background: "#f4f7fc", border: "1px solid #dce6f5", borderRadius: "12px", padding: "14px" }}>
-                    <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink-500)", marginBottom: "8px" }}>
-                      Side Panel Live Redaction Preview
+                  <SafariMockup url="ehr.riverside-medical.org · PII-Zero MV3 Side Panel">
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--ink-500)", marginBottom: "6px" }} className="mono">
+                      SIDE PANEL LIVE REDACTION PREVIEW
                     </div>
-                    <div style={{ background: "#ffffff", borderRadius: "9px", padding: "12px", border: "1px solid #e4ecf7", fontSize: "12.5px", lineHeight: 1.6 }}>
+                    <div style={{ fontSize: "12.5px", lineHeight: 1.6 }}>
                       {renderTokenPillsInText((pipelineResult?.scrubResult.sanitizedText ?? "").slice(0, 290) + "…")}
                     </div>
-                  </div>
+                  </SafariMockup>
                 </section>
 
                 <section className="home-activity-card">
@@ -3743,34 +3928,34 @@ export const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {foldPosture === "unfolded" ? (
-                    <div className="fold-frame">
+                  <AndroidMockup unfolded={foldPosture === "unfolded"}>
+                    {foldPosture === "unfolded" ? (
                       <div className="fold-dual">
                         <div style={{ fontSize: "12px", lineHeight: 1.55, paddingRight: "6px" }}>
-                          <div style={{ fontWeight: 700, color: "var(--brand-blue)", marginBottom: "6px" }}>
-                            Left Screen · Local RAM Vault
+                          <div className="mono" style={{ fontWeight: 700, fontSize: "10.5px", color: "var(--accent-cobalt)", marginBottom: "6px" }}>
+                            LEFT SCREEN · LOCAL RAM VAULT
                           </div>
-                          {rawText.slice(0, 210)}…
+                          {rawText.slice(0, 200)}…
                         </div>
                         <div className="fold-hinge" title="Galaxy Z Fold7 Hinge" />
                         <div style={{ fontSize: "12px", lineHeight: 1.55, paddingLeft: "6px" }}>
-                          <div style={{ fontWeight: 700, color: "#15803d", marginBottom: "6px" }}>
-                            Right Screen · Restored Review
+                          <div className="mono" style={{ fontWeight: 700, fontSize: "10.5px", color: "#059669", marginBottom: "6px" }}>
+                            RIGHT SCREEN · RESTORED REVIEW
                           </div>
-                          {renderRestoredProse((analysis?.executiveSummary ?? "").slice(0, 220))}
+                          {renderRestoredProse((analysis?.executiveSummary ?? "").slice(0, 210))}
                         </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="fold-frame" style={{ maxWidth: "310px", margin: "0 auto" }}>
-                      <div style={{ fontWeight: 700, fontSize: "12.5px", marginBottom: "6px" }}>
-                        PII-Zero Folded Cover Mode · 0 PII Sent
+                    ) : (
+                      <div>
+                        <div className="mono" style={{ fontWeight: 700, fontSize: "11px", marginBottom: "6px", color: "#059669" }}>
+                          COVER MODE · 0 B PII EGRESS
+                        </div>
+                        <div style={{ fontSize: "12px", lineHeight: 1.55 }}>
+                          {renderRestoredProse(analysis?.executiveSummary ?? "")}
+                        </div>
                       </div>
-                      <div style={{ fontSize: "12px", lineHeight: 1.55 }}>
-                        {renderRestoredProse(analysis?.executiveSummary ?? "")}
-                      </div>
-                    </div>
-                  )}
+                    )}
+                  </AndroidMockup>
                 </section>
               </div>
             </div>

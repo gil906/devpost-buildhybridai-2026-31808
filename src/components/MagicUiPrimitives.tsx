@@ -1,18 +1,26 @@
 import React, {
+  Children,
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent,
   type RefObject
 } from "react";
+import { flushSync } from "react-dom";
 import {
+  animate,
   motion,
   useMotionTemplate,
   useMotionValue,
   useReducedMotion,
   useSpring,
+  useTransform,
   type MotionStyle
 } from "motion/react";
 
@@ -604,7 +612,9 @@ export const HybridAirlockBridge: React.FC<{
 
       <span ref={gateNodeRef} className="bridge-zero-chip" title={`SHA-256 #${shortSha || "VERIFIED"}`}>
         <span className="live-emerald-dot" />
-        <span className="mono">0 B PII</span>
+        <AnimatedShinyText shimmerWidth={54} className="mono pz-shiny-emerald">
+          0 B PII
+        </AnimatedShinyText>
       </span>
 
       <span className="bridge-connector" aria-hidden="true" />
@@ -637,3 +647,803 @@ export const HybridAirlockBridge: React.FC<{
     </button>
   );
 };
+
+/* ============================================================================
+ * 10. Magic UI — AnimatedShinyText
+ *     Adapted from @magicuidesign/mcp: animated-shiny-text
+ * ============================================================================ */
+
+export const AnimatedShinyText: React.FC<{
+  children: React.ReactNode;
+  shimmerWidth?: number;
+  className?: string;
+}> = ({ children, shimmerWidth = 86, className = "" }) => {
+  return (
+    <span
+      style={{ "--shiny-width": `${shimmerWidth}px` } as CSSProperties}
+      className={`pz-animated-shiny-text ${className}`}
+    >
+      {children}
+    </span>
+  );
+};
+
+/* ============================================================================
+ * 11. Magic UI — AnimatedThemeToggler (View Transitions Clip-Path Wipe)
+ *     Adapted from @magicuidesign/mcp: animated-theme-toggler
+ * ============================================================================ */
+
+type ViewTransitionDoc = Document & {
+  startViewTransition?: (cb: () => void) => {
+    ready?: Promise<void>;
+    finished?: Promise<void>;
+  };
+};
+
+export const AnimatedThemeToggler: React.FC<{
+  theme: "light" | "dark";
+  onThemeChange: (next: "light" | "dark") => void;
+  duration?: number;
+  className?: string;
+}> = ({ theme, onThemeChange, duration = 440, className = "" }) => {
+  const isDark = theme === "dark";
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const busyRef = useRef(false);
+
+  const handleToggle = useCallback(() => {
+    const btn = buttonRef.current;
+    if (!btn || busyRef.current) return;
+    const nextTheme: "light" | "dark" = isDark ? "light" : "dark";
+
+    const applyTheme = () => {
+      document.documentElement.classList.toggle("dark", nextTheme === "dark");
+      document.documentElement.setAttribute("data-theme", nextTheme);
+      try {
+        localStorage.setItem("piizero-theme", nextTheme);
+      } catch {
+        // Ignore storage errors in strict browser modes
+      }
+      onThemeChange(nextTheme);
+    };
+
+    const doc = document as ViewTransitionDoc;
+    if (typeof doc.startViewTransition !== "function") {
+      applyTheme();
+      return;
+    }
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const rect = btn.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const maxRadius = Math.hypot(Math.max(cx, vw - cx), Math.max(cy, vh - cy));
+    const pxPct = `${(cx / vw) * 100}% ${(cy / vh) * 100}%`;
+    const rPct = `${(maxRadius / (Math.hypot(vw, vh) / Math.SQRT2)) * 100}%`;
+    const clipPath = [`circle(0% at ${pxPct})`, `circle(${rPct} at ${pxPct})`];
+
+    busyRef.current = true;
+    document.documentElement.dataset.magicuiThemeVt = "active";
+
+    const vt = doc.startViewTransition(() => {
+      flushSync(applyTheme);
+    });
+
+    vt.ready
+      ?.then(() => {
+        document.documentElement.animate(
+          { clipPath },
+          {
+            duration,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            fill: "forwards",
+            pseudoElement: "::view-transition-new(root)"
+          }
+        );
+      })
+      .catch(() => {});
+
+    vt.finished
+      ?.finally(() => {
+        busyRef.current = false;
+        delete document.documentElement.dataset.magicuiThemeVt;
+      })
+      .catch(() => {
+        busyRef.current = false;
+        delete document.documentElement.dataset.magicuiThemeVt;
+      });
+  }, [isDark, duration, onThemeChange]);
+
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      onClick={handleToggle}
+      className={`pz-theme-toggler ${className}`}
+      aria-label={isDark ? "Switch to Swiss Paper light theme" : "Switch to Obsidian Enclave dark theme"}
+      title={isDark ? "Switch to Swiss Paper (Light)" : "Switch to Obsidian Enclave (Dark)"}
+    >
+      {isDark ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="4.5" />
+          <path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56" strokeLinecap="round" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </button>
+  );
+};
+
+/* ============================================================================
+ * 12. Magic UI — GlyphMatrix (Live Cryptographic Cipher Canvas)
+ *     Adapted from @magicuidesign/mcp: glyph-matrix
+ * ============================================================================ */
+
+export const GlyphMatrix: React.FC<{
+  glyphs?: string;
+  cellSize?: number;
+  mutationRate?: number;
+  interval?: number;
+  fadeBottom?: number;
+  color?: string;
+  className?: string;
+}> = ({
+  glyphs = "01·•#[]_ABCDEF",
+  cellSize = 13,
+  mutationRate = 0.045,
+  interval = 110,
+  fadeBottom = 0.55,
+  color = "#34d399",
+  className = ""
+}) => {
+  const prefersReducedMotion = useReducedMotion();
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rgbaRef = useRef({ r: 52, g: 211, b: 153, a: 1 });
+
+  useEffect(() => {
+    const probe = document.createElement("canvas");
+    probe.width = 1;
+    probe.height = 1;
+    const pCtx = probe.getContext("2d");
+    if (!pCtx) return;
+    pCtx.fillStyle = "#34d399";
+    pCtx.fillStyle = color;
+    pCtx.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = pCtx.getImageData(0, 0, 1, 1).data;
+    rgbaRef.current = { r, g, b, a: a / 255 };
+  }, [color]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let cols = 0;
+    let rows = 0;
+    let cells: string[] = [];
+    let alphas: number[] = [];
+    let raf = 0;
+    let last = 0;
+    let stopped = false;
+
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.max(1, canvas.clientWidth);
+      const h = Math.max(1, canvas.clientHeight);
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      cols = Math.max(1, Math.ceil(w / cellSize));
+      rows = Math.max(1, Math.ceil(h / cellSize));
+      cells = new Array(cols * rows)
+        .fill(0)
+        .map(() => glyphs[Math.floor(Math.random() * glyphs.length)]);
+      alphas = new Array(cols * rows).fill(0).map(() => 0.06 + Math.random() * 0.28);
+    };
+
+    const draw = () => {
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      ctx.clearRect(0, 0, w, h);
+      ctx.font = `${cellSize - 3}px "IBM Plex Mono", ui-monospace, monospace`;
+      ctx.textBaseline = "top";
+      const { r, g, b, a: cAlpha } = rgbaRef.current;
+      for (let y = 0; y < rows; y++) {
+        const fade = fadeBottom > 0 ? 1 - (y / rows) * fadeBottom : 1;
+        for (let x = 0; x < cols; x++) {
+          const idx = y * cols + x;
+          const alpha = alphas[idx] * fade * cAlpha;
+          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+          ctx.fillText(cells[idx], x * cellSize, y * cellSize);
+        }
+      }
+    };
+
+    const tick = (t: number) => {
+      if (stopped) return;
+      if (!prefersReducedMotion && t - last >= interval) {
+        last = t;
+        const total = cols * rows;
+        const mutations = Math.max(1, Math.floor(total * mutationRate));
+        for (let n = 0; n < mutations; n++) {
+          const idx = Math.floor(Math.random() * total);
+          cells[idx] = glyphs[Math.floor(Math.random() * glyphs.length)];
+          alphas[idx] = 0.06 + Math.random() * 0.34;
+        }
+        draw();
+      }
+      raf = requestAnimationFrame(tick);
+    };
+
+    resize();
+    draw();
+    if (!prefersReducedMotion) {
+      raf = requestAnimationFrame(tick);
+    }
+
+    const ro = new ResizeObserver(() => {
+      resize();
+      draw();
+    });
+    ro.observe(canvas);
+
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [glyphs, cellSize, mutationRate, interval, fadeBottom, prefersReducedMotion]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className={`pz-glyph-matrix ${className}`}
+      aria-hidden="true"
+    />
+  );
+};
+
+/* ============================================================================
+ * 13. Magic UI — DiaTextReveal (Horizontal Prismatic Band Sweep)
+ *     Adapted from @magicuidesign/mcp: dia-text-reveal
+ * ============================================================================ */
+
+const DIA_BAND_HALF = 18;
+const DIA_START = -DIA_BAND_HALF;
+const DIA_END = 100 + DIA_BAND_HALF;
+const DIA_COLORS = ["#10b981", "#0ea5e9", "#2563eb", "#38bdf8"];
+
+function buildDiaGradient(pos: number, colors: string[], textColor: string) {
+  const bandStart = pos - DIA_BAND_HALF;
+  const bandEnd = pos + DIA_BAND_HALF;
+  if (bandStart >= 100) {
+    return `linear-gradient(90deg, ${textColor}, ${textColor})`;
+  }
+  const parts: string[] = [];
+  if (bandStart > 0) {
+    parts.push(`${textColor} 0%`, `${textColor} ${bandStart.toFixed(1)}%`);
+  }
+  colors.forEach((c, i) => {
+    const pct = bandStart + (i / (colors.length - 1)) * DIA_BAND_HALF * 2;
+    parts.push(`${c} ${pct.toFixed(1)}%`);
+  });
+  if (bandEnd < 100) {
+    parts.push(`transparent ${bandEnd.toFixed(1)}%`, `transparent 100%`);
+  }
+  return `linear-gradient(90deg, ${parts.join(", ")})`;
+}
+
+export const DiaTextReveal: React.FC<{
+  text: string;
+  duration?: number;
+  className?: string;
+}> = ({ text, duration = 0.85, className = "" }) => {
+  const prefersReducedMotion = useReducedMotion();
+  const sweepPos = useMotionValue(prefersReducedMotion ? DIA_END : DIA_START);
+  const backgroundImage = useTransform(sweepPos, (pos) =>
+    buildDiaGradient(pos, DIA_COLORS, "var(--ink-900)")
+  );
+
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      sweepPos.set(DIA_END);
+      return;
+    }
+    sweepPos.set(DIA_START);
+    const ctrl = animate(sweepPos, DIA_END, {
+      duration,
+      ease: [0.22, 1, 0.36, 1]
+    });
+    return () => ctrl.stop();
+  }, [text, duration, prefersReducedMotion, sweepPos]);
+
+  return (
+    <motion.span
+      className={`pz-dia-reveal ${className}`}
+      style={{
+        color: "transparent",
+        backgroundClip: "text",
+        WebkitBackgroundClip: "text",
+        backgroundSize: "100% 100%",
+        backgroundImage
+      }}
+    >
+      {text}
+    </motion.span>
+  );
+};
+
+/* ============================================================================
+ * 14. Magic UI — GlareHover (Diagonal Specular Sweep)
+ *     Adapted from @magicuidesign/mcp: glare-hover
+ * ============================================================================ */
+
+export const GlareHover: React.FC<
+  React.HTMLAttributes<HTMLDivElement> & {
+    glareColor?: string;
+    angle?: number;
+    duration?: number;
+  }
+> = ({
+  children,
+  glareColor = "rgba(16, 185, 129, 0.14)",
+  angle = -38,
+  duration = 560,
+  className = "",
+  style,
+  ...rest
+}) => {
+  return (
+    <div
+      className={`pz-glare-hover ${className}`}
+      style={
+        {
+          "--gh-rgba": glareColor,
+          "--gh-angle": `${angle}deg`,
+          "--gh-duration": `${duration}ms`,
+          ...style
+        } as CSSProperties
+      }
+      {...rest}
+    >
+      {children}
+    </div>
+  );
+};
+
+/* ============================================================================
+ * 15. Magic UI — Marquee (Pause-on-Hover Compliance Telemetry Ribbon)
+ *     Adapted from @magicuidesign/mcp: marquee
+ * ============================================================================ */
+
+export const Marquee: React.FC<{
+  children: React.ReactNode;
+  pauseOnHover?: boolean;
+  reverse?: boolean;
+  repeat?: number;
+  durationSec?: number;
+  className?: string;
+}> = ({
+  children,
+  pauseOnHover = true,
+  reverse = false,
+  repeat = 3,
+  durationSec = 36,
+  className = ""
+}) => {
+  return (
+    <div
+      className={`pz-marquee${pauseOnHover ? " pause-hover" : ""} ${className}`}
+      style={{ "--marquee-duration": `${durationSec}s` } as CSSProperties}
+    >
+      {Array.from({ length: repeat }).map((_, idx) => (
+        <div
+          key={idx}
+          aria-hidden={idx > 0 ? true : undefined}
+          className={`pz-marquee-track${reverse ? " reverse" : ""}`}
+        >
+          {children}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/* ============================================================================
+ * 16. Magic UI — RippleButton
+ *     Adapted from @magicuidesign/mcp: ripple-button
+ * ============================================================================ */
+
+interface RippleWave {
+  x: number;
+  y: number;
+  size: number;
+  key: number;
+}
+
+export const RippleButton: React.FC<
+  React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    rippleColor?: string;
+  }
+> = ({
+  children,
+  className = "",
+  rippleColor = "rgba(16, 185, 129, 0.28)",
+  onClick,
+  ...props
+}) => {
+  const [ripples, setRipples] = useState<RippleWave[]>([]);
+  const keyRef = useRef(0);
+
+  const handleClick = (e: MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height) * 1.15;
+    const x = e.clientX - rect.left - size / 2;
+    const y = e.clientY - rect.top - size / 2;
+    keyRef.current += 1;
+    const k = keyRef.current;
+    setRipples((prev) => [...prev, { x, y, size, key: k }]);
+    setTimeout(() => {
+      setRipples((prev) => prev.filter((r) => r.key !== k));
+    }, 620);
+    onClick?.(e);
+  };
+
+  return (
+    <button className={`pz-ripple-btn ${className}`} onClick={handleClick} {...props}>
+      <span className="pz-ripple-fg">{children}</span>
+      <span className="pz-ripple-layer" aria-hidden="true">
+        {ripples.map((r) => (
+          <span
+            key={r.key}
+            className="pz-ripple-circle"
+            style={{
+              width: r.size,
+              height: r.size,
+              left: r.x,
+              top: r.y,
+              backgroundColor: rippleColor
+            }}
+          />
+        ))}
+      </span>
+    </button>
+  );
+};
+
+/* ============================================================================
+ * 17. Magic UI — InteractiveHoverButton (Dot-Expand + Sliding Arrow CTA)
+ *     Adapted from @magicuidesign/mcp: interactive-hover-button
+ * ============================================================================ */
+
+export const InteractiveHoverButton: React.FC<
+  React.ButtonHTMLAttributes<HTMLButtonElement>
+> = ({ children, className = "", ...props }) => {
+  return (
+    <button className={`pz-interactive-hover-btn ${className}`} {...props}>
+      <span className="pz-ihb-idle">
+        <span className="pz-ihb-dot" aria-hidden="true" />
+        <span className="pz-ihb-label">{children}</span>
+      </span>
+      <span className="pz-ihb-hover" aria-hidden="true">
+        <span>{children}</span>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+          <path d="M5 12h14M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </button>
+  );
+};
+
+/* ============================================================================
+ * 18. Magic UI — AnimatedCircularProgressBar (SVG Radial Gauge)
+ *     Adapted from @magicuidesign/mcp: animated-circular-progress-bar
+ * ============================================================================ */
+
+export const AnimatedCircularProgressBar: React.FC<{
+  value: number;
+  max?: number;
+  min?: number;
+  size?: number;
+  strokeWidth?: number;
+  gaugePrimaryColor?: string;
+  gaugeSecondaryColor?: string;
+  labelSuffix?: string;
+  className?: string;
+}> = ({
+  value,
+  max = 100,
+  min = 0,
+  size = 40,
+  strokeWidth = 9,
+  gaugePrimaryColor = "#10b981",
+  gaugeSecondaryColor = "rgba(148, 163, 184, 0.22)",
+  labelSuffix = "%",
+  className = ""
+}) => {
+  const radius = 44;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.max(0, Math.min(100, Math.round(((value - min) / (max - min)) * 100)));
+  const dashOffset = circumference - (clamped / 100) * circumference;
+
+  return (
+    <div
+      className={`pz-circular-gauge ${className}`}
+      style={{ width: size, height: size }}
+      role="meter"
+      aria-valuenow={clamped}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
+      <svg viewBox="0 0 100 100" className="pz-circular-svg" aria-hidden="true">
+        <circle
+          cx="50"
+          cy="50"
+          r={radius}
+          fill="none"
+          stroke={gaugeSecondaryColor}
+          strokeWidth={strokeWidth}
+        />
+        <circle
+          cx="50"
+          cy="50"
+          r={radius}
+          fill="none"
+          stroke={gaugePrimaryColor}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          style={{
+            transform: "rotate(-90deg)",
+            transformOrigin: "50% 50%",
+            transition: "stroke-dashoffset 0.75s cubic-bezier(0.22, 1, 0.36, 1), stroke 0.35s ease"
+          }}
+        />
+      </svg>
+      <span className="pz-circular-label mono">
+        {clamped}
+        {labelSuffix}
+      </span>
+    </div>
+  );
+};
+
+/* ============================================================================
+ * 19. Magic UI — Terminal + TypingAnimation + AnimatedSpan
+ *     Adapted from @magicuidesign/mcp: terminal
+ * ============================================================================ */
+
+interface TerminalSeqCtx {
+  activeIndex: number;
+  completeItem: (idx: number) => void;
+}
+
+const TermSequenceCtx = createContext<TerminalSeqCtx | null>(null);
+const TermItemIdxCtx = createContext<number | null>(null);
+
+export const AnimatedSpan: React.FC<{
+  children: React.ReactNode;
+  className?: string;
+}> = ({ children, className = "" }) => {
+  const seq = useContext(TermSequenceCtx);
+  const idx = useContext(TermItemIdxCtx);
+  const visible = !seq || idx === null || seq.activeIndex >= idx;
+
+  useEffect(() => {
+    if (!seq || idx === null) return;
+    if (seq.activeIndex === idx) {
+      const t = setTimeout(() => seq.completeItem(idx), 160);
+      return () => clearTimeout(t);
+    }
+  }, [seq, idx]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -4 }}
+      animate={visible ? { opacity: 1, y: 0 } : { opacity: 0, y: -4 }}
+      transition={{ duration: 0.2 }}
+      className={`pz-term-line ${className}`}
+    >
+      {children}
+    </motion.div>
+  );
+};
+
+export const TypingAnimation: React.FC<{
+  children: string;
+  duration?: number;
+  className?: string;
+}> = ({ children, duration = 16, className = "" }) => {
+  const prefersReducedMotion = useReducedMotion();
+  const seq = useContext(TermSequenceCtx);
+  const idx = useContext(TermItemIdxCtx);
+  const active = !seq || idx === null || seq.activeIndex >= idx;
+  const [text, setText] = useState(prefersReducedMotion ? children : "");
+
+  useEffect(() => {
+    if (!active) {
+      setText("");
+      return;
+    }
+    if (prefersReducedMotion) {
+      setText(children);
+      if (seq && idx !== null && seq.activeIndex === idx) seq.completeItem(idx);
+      return;
+    }
+    let pos = 0;
+    const timer = setInterval(() => {
+      pos += 1;
+      setText(children.slice(0, pos));
+      if (pos >= children.length) {
+        clearInterval(timer);
+        if (seq && idx !== null) seq.completeItem(idx);
+      }
+    }, duration);
+    return () => clearInterval(timer);
+  }, [active, children, duration, prefersReducedMotion, seq, idx]);
+
+  if (!active) return null;
+  return <div className={`pz-term-line ${className}`}>{text}</div>;
+};
+
+export const Terminal: React.FC<{
+  title?: string;
+  children: React.ReactNode;
+  className?: string;
+}> = ({ title = "firebase-ai-airlock — zsh", children, className = "" }) => {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const items = useMemo(() => Children.toArray(children), [children]);
+
+  const ctx = useMemo<TerminalSeqCtx>(
+    () => ({
+      activeIndex,
+      completeItem: (idx: number) => {
+        setActiveIndex((cur) => (cur === idx ? cur + 1 : cur));
+      }
+    }),
+    [activeIndex]
+  );
+
+  return (
+    <TermSequenceCtx.Provider value={ctx}>
+      <div className={`pz-terminal ${className}`}>
+        <div className="pz-terminal-bar">
+          <div className="pz-terminal-dots" aria-hidden="true">
+            <span className="dot red" />
+            <span className="dot amber" />
+            <span className="dot green" />
+          </div>
+          <span className="pz-terminal-title mono">{title}</span>
+          <button
+            type="button"
+            className="pz-terminal-replay mono"
+            onClick={() => setActiveIndex(0)}
+            title="Replay enclave trace"
+          >
+            ↻ Replay
+          </button>
+        </div>
+        <pre className="pz-terminal-body mono">
+          <code>
+            {items.map((child, idx) => (
+              <TermItemIdxCtx.Provider key={idx} value={idx}>
+                {child}
+              </TermItemIdxCtx.Provider>
+            ))}
+          </code>
+        </pre>
+      </div>
+    </TermSequenceCtx.Provider>
+  );
+};
+
+/* ============================================================================
+ * 20. Magic UI — CodeComparison (Before vs After Airlock Diff View)
+ *     Adapted from @magicuidesign/mcp: code-comparison
+ * ============================================================================ */
+
+export const CodeComparison: React.FC<{
+  filename: string;
+  beforeTitle?: string;
+  afterTitle?: string;
+  beforeLines: Array<{ text: string; kind?: "remove" | "neutral" }>;
+  afterLines: Array<{ text: string; kind?: "add" | "neutral" }>;
+}> = ({
+  filename,
+  beforeTitle = "BEFORE · Raw Cloud Leak",
+  afterTitle = "AFTER · PII-Zero Hybrid Airlock",
+  beforeLines,
+  afterLines
+}) => {
+  return (
+    <div className="pz-code-comparison">
+      <div className="pz-cc-grid">
+        <div className="pz-cc-pane before">
+          <div className="pz-cc-header">
+            <span className="mono">{filename}</span>
+            <span className="pz-cc-tag danger mono">{beforeTitle}</span>
+          </div>
+          <pre className="pz-cc-pre mono">
+            {beforeLines.map((ln, i) => (
+              <div key={i} className={`pz-cc-line ${ln.kind ?? "neutral"}`}>
+                <span className="pz-cc-ln">{i + 1}</span>
+                <span>{ln.text}</span>
+              </div>
+            ))}
+          </pre>
+        </div>
+
+        <div className="pz-cc-pane after">
+          <div className="pz-cc-header">
+            <span className="mono">{filename}</span>
+            <span className="pz-cc-tag safe mono">{afterTitle}</span>
+          </div>
+          <pre className="pz-cc-pre mono">
+            {afterLines.map((ln, i) => (
+              <div key={i} className={`pz-cc-line ${ln.kind ?? "neutral"}`}>
+                <span className="pz-cc-ln">{i + 1}</span>
+                <span>{ln.text}</span>
+              </div>
+            ))}
+          </pre>
+        </div>
+      </div>
+      <div className="pz-cc-vs mono" aria-hidden="true">
+        VS
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================================
+ * 21. Magic UI — Safari & Android Device Mockup Frames
+ *     Adapted from @magicuidesign/mcp: safari & android
+ * ============================================================================ */
+
+export const SafariMockup: React.FC<{
+  url?: string;
+  children: React.ReactNode;
+}> = ({ url = "ehr.riverside-medical.org — PII-Zero MV3 Side Panel", children }) => {
+  return (
+    <div className="pz-safari-frame">
+      <div className="pz-safari-chrome">
+        <div className="pz-terminal-dots" aria-hidden="true">
+          <span className="dot red" />
+          <span className="dot amber" />
+          <span className="dot green" />
+        </div>
+        <div className="pz-safari-url mono">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+            <rect x="4" y="11" width="16" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+          <span>{url}</span>
+        </div>
+      </div>
+      <div className="pz-safari-viewport">{children}</div>
+    </div>
+  );
+};
+
+export const AndroidMockup: React.FC<{
+  unfolded?: boolean;
+  children: React.ReactNode;
+}> = ({ unfolded = true, children }) => {
+  return (
+    <div className={`pz-android-frame ${unfolded ? "unfolded" : "cover"}`}>
+      <div className="pz-android-topbar" aria-hidden="true">
+        <span className="mono">9:41</span>
+        <span className="pz-android-camera" />
+        <span className="mono">5G · 100%</span>
+      </div>
+      <div className="pz-android-screen">{children}</div>
+      <div className="pz-android-gesture-pill" aria-hidden="true" />
+    </div>
+  );
+};
+
