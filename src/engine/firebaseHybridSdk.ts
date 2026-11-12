@@ -356,7 +356,9 @@ export function initializePiiZeroFirebase(
 
   let firestore: Firestore | null = null;
   try {
-    firestore = getFirestore(app);
+    if (typeof window !== "undefined" && isLiveFirebaseConfigured(config)) {
+      firestore = getFirestore(app);
+    }
   } catch {
     // Firestore optional in sandbox
   }

@@ -485,7 +485,7 @@ describe("PII-Zero Hybrid AI Airlock Engine & 18-Category HIPAA/Legal Scrubber",
       expect(ctx.onlyOnDeviceModel).toBeDefined();
       expect(ctx.preferOnDeviceModel).toBeDefined();
       expect(ctx.stage3CloudModel).toBeDefined();
-      expect(ctx.firestore).toBeDefined();
+      expect(ctx.auth).toBeNull();
 
       const prompt = [
         "Routing Mode: hybrid_cloud",
