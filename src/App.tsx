@@ -9,14 +9,25 @@ import {
 import {
   InferenceMode,
   DEFAULT_DEMO_FIREBASE_CONFIG,
+  probeOnDeviceCapability,
   runHybridAirlockPipeline,
   askHybridDocumentQuestion,
   generateSdkCodeSnippet,
   isLiveFirebaseConfigured,
   type FirebaseWebConfig,
   type HybridPipelineExecutionResult,
+  type OnDeviceProbeStatus,
   type QaAnswerSection
 } from "./engine/firebaseHybridSdk";
+import {
+  buildVerifiedRedactedPdfBytes,
+  extractClientFileTextInRam,
+  getStrategyDisplayForEntry,
+  scrubQuestionWithVaultPreview,
+  transformSanitizedTextByStrategy,
+  type HybridRoutingPolicy,
+  type RedactionOutputStrategy
+} from "./engine/documentIoAndModes";
 
 type SidebarNav = "home" | "document" | "history" | "settings" | "help";
 type LeftDocTab = "document" | "redacted" | "audit";
@@ -513,8 +524,15 @@ export const App: React.FC = () => {
   const [peekEnabled, setPeekEnabled] = useState<boolean>(true);
   const [activePeekOccurrenceKey, setActivePeekOccurrenceKey] = useState<string>("first");
   const [activePeekToken, setActivePeekToken] = useState<string | null>(null);
+  const [hoveredEntityToken, setHoveredEntityToken] = useState<string | null>(null);
   const [hiddenVaultTokens, setHiddenVaultTokens] = useState<Set<string>>(() => new Set());
   const [rehydrateRight, setRehydrateRight] = useState<boolean>(urlInit.rehydrate);
+  const [redactionStrategy, setRedactionStrategy] = useState<RedactionOutputStrategy>("smart_tokens");
+  const [routingPolicy, setRoutingPolicy] = useState<HybridRoutingPolicy>("hybrid_cloud");
+  const [hybridInspectorOpen, setHybridInspectorOpen] = useState<boolean>(false);
+  const [onDeviceProbe, setOnDeviceProbe] = useState<OnDeviceProbeStatus | null>(null);
+  const [selectedPhraseCandidate, setSelectedPhraseCandidate] = useState<string>("");
+  const [manualMaskedTerms, setManualMaskedTerms] = useState<string[]>([]);
 
   const [stage1Mode, setStage1Mode] = useState<InferenceMode>(InferenceMode.ONLY_ON_DEVICE);
   const [cloudModelName, setCloudModelName] = useState<string>("gemini-2.5-flash");
@@ -535,6 +553,8 @@ export const App: React.FC = () => {
   const [uploadModalOpen, setUploadModalOpen] = useState<boolean>(false);
   const [pasteDraftTitle, setPasteDraftTitle] = useState<string>("Client Document.pdf");
   const [pasteDraftBody, setPasteDraftBody] = useState<string>("");
+  const [uploadStatusNote, setUploadStatusNote] = useState<string>("");
+  const [isDragOverModal, setIsDragOverModal] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [simulatedLeakAlert, setSimulatedLeakAlert] = useState<{
@@ -617,7 +637,7 @@ export const App: React.FC = () => {
       return {
         id: "qa-seed-" + docId,
         question: meta.defaultQuestion,
-        sanitizedQuestion: meta.defaultQuestion,
+        sanitizedQuestion: scrubQuestionWithVaultPreview(meta.defaultQuestion, vault),
         timestamp: "10:24 AM",
         intro:
           docId === "doc-nda-contract"
@@ -718,6 +738,7 @@ export const App: React.FC = () => {
   );
 
   useEffect(() => {
+    void probeOnDeviceCapability().then(setOnDeviceProbe).catch(() => {});
     void executeAirlock(
       rawText,
       customTermsInput,
@@ -742,6 +763,9 @@ export const App: React.FC = () => {
     setRawText(found.rawDocument);
     const csv = found.customTerms.join(", ");
     setCustomTermsInput(csv);
+    setManualMaskedTerms([]);
+    setSelectedPhraseCandidate("");
+    setHoveredEntityToken(null);
     setHiddenVaultTokens(new Set());
     void executeAirlock(
       found.rawDocument,
@@ -822,21 +846,130 @@ export const App: React.FC = () => {
 
   const handleExportRedacted = () => {
     if (!pipelineResult) return;
-    const content = [
-      `PII-ZERO VERIFIED REDACTED EXPORT (${currentDocMeta.fileName})`,
-      `SHA-256 Receipt: ${pipelineResult.scrubResult.sanitizedSha256}`,
-      `Cloud PII Bytes Exposed: 0`,
-      `------------------------------------------------------------`,
-      "",
-      pipelineResult.scrubResult.sanitizedText
-    ].join("\n");
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const transformed = transformSanitizedTextByStrategy(
+      pipelineResult.scrubResult.sanitizedText,
+      pipelineResult.scrubResult.vaultEntries,
+      redactionStrategy
+    );
+    const pdfBytes = buildVerifiedRedactedPdfBytes({
+      fileName: currentDocMeta.fileName,
+      instTitle: currentDocMeta.instTitle,
+      reportTitle: currentDocMeta.reportTitle,
+      sha256: pipelineResult.scrubResult.sanitizedSha256,
+      maskedCount: pipelineResult.scrubResult.telemetry.totalDetected,
+      strategy: redactionStrategy,
+      bodyText: transformed
+    });
+    const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = currentDocMeta.fileName.replace(/\.(pdf|docx)$/i, "") + "-REDACTED.txt";
+    a.download = currentDocMeta.fileName.replace(/\.(pdf|docx|txt|md)$/i, "") + "-REDACTED.pdf";
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleCopySafePayload = () => {
+    if (!pipelineResult) return;
+    const transformed = transformSanitizedTextByStrategy(
+      pipelineResult.scrubResult.sanitizedText,
+      pipelineResult.scrubResult.vaultEntries,
+      redactionStrategy
+    );
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(transformed);
+    }
+    setCopiedId("redacted-payload");
+    setTimeout(() => setCopiedId(null), 1800);
+  };
+
+  const handleMaskSelectedPhrase = (phraseRaw: string) => {
+    const cleaned = phraseRaw.replace(/\s+/g, " ").trim();
+    if (cleaned.length < 2 || cleaned.length > 72) return;
+    const existing = customTermsInput
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!existing.some((t) => t.toLowerCase() === cleaned.toLowerCase())) {
+      existing.push(cleaned);
+    }
+    const nextCsv = existing.join(", ");
+    setCustomTermsInput(nextCsv);
+    setManualMaskedTerms((prev) =>
+      prev.some((p) => p.toLowerCase() === cleaned.toLowerCase())
+        ? prev
+        : [...prev, cleaned]
+    );
+    setSelectedPhraseCandidate("");
+    window.getSelection()?.removeAllRanges();
+    void executeAirlock(
+      rawText,
+      nextCsv,
+      stage1Mode,
+      firebaseConfig,
+      cloudModelName,
+      selectedDocId,
+      false,
+      currentDocMeta
+    );
+  };
+
+  const handleRemoveManualTerm = (termToRemove: string) => {
+    const remaining = customTermsInput
+      .split(",")
+      .map((s) => s.trim())
+      .filter((t) => t && t.toLowerCase() !== termToRemove.toLowerCase());
+    const nextCsv = remaining.join(", ");
+    setCustomTermsInput(nextCsv);
+    setManualMaskedTerms((prev) =>
+      prev.filter((t) => t.toLowerCase() !== termToRemove.toLowerCase())
+    );
+    void executeAirlock(
+      rawText,
+      nextCsv,
+      stage1Mode,
+      firebaseConfig,
+      cloudModelName,
+      selectedDocId,
+      false,
+      currentDocMeta
+    );
+  };
+
+  const handleSelectRoutingPolicy = (policy: HybridRoutingPolicy) => {
+    setRoutingPolicy(policy);
+    const nextStage1 =
+      policy === "prefer_on_device"
+        ? InferenceMode.PREFER_ON_DEVICE
+        : InferenceMode.ONLY_ON_DEVICE;
+    if (nextStage1 !== stage1Mode) {
+      setStage1Mode(nextStage1);
+      void executeAirlock(
+        rawText,
+        customTermsInput,
+        nextStage1,
+        firebaseConfig,
+        cloudModelName,
+        selectedDocId,
+        false,
+        currentDocMeta
+      );
+    }
+  };
+
+  const handleCaptureDocumentSelection = () => {
+    const sel = window.getSelection();
+    const text = sel ? sel.toString().replace(/\s+/g, " ").trim() : "";
+    if (text.length >= 2 && text.length <= 68 && !/^\[[A-Z0-9_]+\]$/.test(text)) {
+      const alreadyVaulted = (pipelineResult?.scrubResult.vaultEntries ?? []).some(
+        (v) => v.originalValue.toLowerCase() === text.toLowerCase()
+      );
+      if (!alreadyVaulted) {
+        setSelectedPhraseCandidate(text);
+        return;
+      }
+    }
+    setSelectedPhraseCandidate("");
   };
 
   const handleCopySummary = (turn: QaConversationItem) => {
@@ -860,16 +993,27 @@ export const App: React.FC = () => {
     setTimeout(() => setCopiedId(null), 1800);
   };
 
+  const processUploadedClientFile = async (file: File) => {
+    try {
+      setUploadStatusNote(`Reading ${file.name} locally in browser RAM…`);
+      const extracted = await extractClientFileTextInRam(file);
+      setPasteDraftTitle(extracted.title);
+      setPasteDraftBody(extracted.text);
+      setUploadStatusNote(
+        `Extracted ${extracted.text.length.toLocaleString()} characters in local RAM (0 bytes uploaded).`
+      );
+    } catch (err) {
+      setPasteDraftTitle(file.name);
+      setUploadStatusNote(
+        err instanceof Error ? err.message : "Unable to read file locally; paste text below."
+      );
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const content = String(reader.result || "");
-      setPasteDraftTitle(file.name);
-      setPasteDraftBody(content);
-    };
-    reader.readAsText(file);
+    void processUploadedClientFile(file);
   };
 
   const handleLoadCustomDocument = () => {
@@ -1029,6 +1173,7 @@ export const App: React.FC = () => {
           ? "***-**-" + entry.originalValue.slice(-4)
           : maskDisplayValue(entry, isVisible);
       const showTooltip = peekEnabled && activePeekOccurrenceKey === occKey;
+      const isCrossLinked = hoveredEntityToken === entry.token;
 
       return (
         <span
@@ -1037,6 +1182,10 @@ export const App: React.FC = () => {
           onMouseEnter={() => {
             setActivePeekOccurrenceKey(occKey);
             setActivePeekToken(entry.token);
+            setHoveredEntityToken(entry.token);
+          }}
+          onMouseLeave={() => {
+            setHoveredEntityToken((cur) => (cur === entry.token ? null : cur));
           }}
           onClick={() => {
             setActivePeekOccurrenceKey(occKey);
@@ -1052,7 +1201,7 @@ export const App: React.FC = () => {
               <span className="peek-tooltip-info">i</span>
             </span>
           )}
-          <span className={`entity-pill ${color}`}>
+          <span className={`entity-pill ${color}${isCrossLinked ? " is-linked" : ""}`}>
             {entry.originalValue !== "Dr. Sarah Johnson" && (
               <PillMiniIcon category={entry.category} />
             )}
@@ -1080,12 +1229,15 @@ export const App: React.FC = () => {
   };
 
   /**
-   * Renders placeholder tokens ([PATIENT_1], [COMPANY_A], [PII_*], etc.) inside Redacted Version
+   * Renders placeholder tokens ([PATIENT_1], Synthetic Alias, or Blackout) inside Redacted Version & raw token views
    */
-  const renderTokenPillsInText = (text: string): React.ReactNode => {
+  const renderTokenPillsInText = (
+    text: string,
+    strategy: RedactionOutputStrategy = "smart_tokens"
+  ): React.ReactNode => {
     if (!text) return null;
-    const byToken = new Map<string, VaultEntry>();
-    for (const v of vaultEntries) byToken.set(v.token, v);
+    const byToken = new Map<string, { entry: VaultEntry; index: number }>();
+    vaultEntries.forEach((v, idx) => byToken.set(v.token, { entry: v, index: idx }));
 
     return text.split(/(\[[A-Z][A-Z0-9_]*\]|\b5 years\b)/g).map((part, idx) => {
       if (part === "5 years") {
@@ -1096,19 +1248,43 @@ export const App: React.FC = () => {
         );
       }
       if (/^\[[A-Z][A-Z0-9_]*\]$/.test(part)) {
-        const entry = byToken.get(part);
+        const hit = byToken.get(part);
+        const entry = hit?.entry;
         const color = entry ? getEntryPillColor(entry) : "purple";
+        const isCrossLinked = entry ? hoveredEntityToken === entry.token : false;
+        const displayLabel =
+          entry && hit
+            ? getStrategyDisplayForEntry(entry, hit.index, strategy)
+            : part;
+        const isBlackout = strategy === "legal_blackout" && !!entry;
         return (
           <span
             key={idx}
-            className={`entity-pill token-mono ${color}`}
+            className={
+              isBlackout
+                ? `entity-pill blackout-pill${isCrossLinked ? " is-linked" : ""}`
+                : `entity-pill ${strategy === "smart_tokens" ? "token-mono " : ""}${color}${
+                    isCrossLinked ? " is-linked" : ""
+                  }`
+            }
+            onMouseEnter={() => {
+              if (entry) {
+                setHoveredEntityToken(entry.token);
+                setActivePeekToken(entry.token);
+              }
+            }}
+            onMouseLeave={() => {
+              if (entry) {
+                setHoveredEntityToken((cur) => (cur === entry.token ? null : cur));
+              }
+            }}
             title={
               entry
-                ? `Local RAM value: "${maskDisplayValue(entry, !hiddenVaultTokens.has(entry.token))}" (${entry.label})`
+                ? `Local RAM value: "${maskDisplayValue(entry, !hiddenVaultTokens.has(entry.token))}" → Cloud token ${entry.token}`
                 : "Anonymized Cloud Token"
             }
           >
-            {part}
+            {displayLabel}
           </span>
         );
       }
@@ -1117,12 +1293,12 @@ export const App: React.FC = () => {
   };
 
   /**
-   * Renders right-side AI analysis / Q&A prose with soft blue locally restored entity pills
+   * Renders right-side AI analysis / Q&A prose with soft blue locally restored entity pills + cross-panel hover linking
    */
   const renderRestoredProse = (cloudSourceText: string): React.ReactNode => {
     if (!cloudSourceText) return null;
     if (!rehydrateRight) {
-      return renderTokenPillsInText(cloudSourceText);
+      return renderTokenPillsInText(cloudSourceText, "smart_tokens");
     }
     const byToken = new Map<string, VaultEntry>();
     for (const v of vaultEntries) byToken.set(v.token, v);
@@ -1145,10 +1321,19 @@ export const App: React.FC = () => {
           const entry = byToken.get(part);
           if (!entry) return <React.Fragment key={idx}>{part}</React.Fragment>;
           const shown = maskDisplayValue(entry, !hiddenVaultTokens.has(entry.token));
+          const isCrossLinked = hoveredEntityToken === entry.token;
           return (
             <span
               key={idx}
-              className="restored-pill"
+              className={`restored-pill${isCrossLinked ? " is-linked" : ""}`}
+              onMouseEnter={() => {
+                setHoveredEntityToken(entry.token);
+                setActivePeekToken(entry.token);
+              }}
+              onMouseLeave={() => {
+                setHoveredEntityToken((cur) => (cur === entry.token ? null : cur));
+              }}
+              onClick={() => setActivePeekToken(entry.token)}
               title={`Restored locally in browser RAM from ${entry.token} — Cloud AI never saw "${entry.originalValue}"`}
             >
               {shown}
@@ -1234,10 +1419,14 @@ export const App: React.FC = () => {
     const renderInline = (txt: string, keyPrefix: string) =>
       mode === "raw"
         ? renderRawPillsInText(txt, keyPrefix, firstTracker)
-        : renderTokenPillsInText(txt);
+        : renderTokenPillsInText(txt, redactionStrategy);
 
     return (
-      <div className={mode === "redacted" ? "doc-paper compact" : "doc-paper"}>
+      <div
+        className={mode === "redacted" ? "doc-paper compact" : "doc-paper"}
+        onMouseUp={mode === "raw" ? handleCaptureDocumentSelection : undefined}
+        onKeyUp={mode === "raw" ? handleCaptureDocumentSelection : undefined}
+      >
         {currentDocMeta.showInstHeader && (
           <div className="doc-inst-header">
             {currentDocMeta.isLegal ? (
@@ -1526,9 +1715,16 @@ export const App: React.FC = () => {
             </div>
           </header>
 
-          {/* Centered Two-Stage Hybrid AI Pipeline Strip */}
+          {/* Centered Two-Stage Hybrid AI Pipeline Strip (Interactive Inspector Toggle) */}
           <div className="hybrid-pipeline-row">
-            <div className="hybrid-pipeline-pill" aria-label="Hybrid AI execution summary">
+            <button
+              type="button"
+              className={"hybrid-pipeline-pill interactive" + (hybridInspectorOpen ? " open" : "")}
+              aria-expanded={hybridInspectorOpen}
+              aria-label="Hybrid AI execution summary and routing policy"
+              onClick={() => setHybridInspectorOpen((v) => !v)}
+              title="Click to inspect or switch Firebase AI Logic hybrid routing mode"
+            >
               <span className="pipeline-step">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" style={{ flexShrink: 0 }}>
                   <rect x="3" y="4" width="18" height="12" rx="2" />
@@ -1552,15 +1748,95 @@ export const App: React.FC = () => {
                     <path d="M18.4 10.2A6.5 6.5 0 0 0 6 8.8 5 5 0 0 0 6.5 18.8h11.4a4.3 4.3 0 0 0 .5-8.6z" />
                   </svg>
                 </span>
-                <span className="hide-xs">
-                  Cloud AI: <strong>Analyzed Safely{liveFirebase ? " (Live Firebase)" : ""}</strong>
-                </span>
-                <span className="show-xs">
-                  Cloud AI: <strong>Analyzed Safely</strong>
+                {routingPolicy === "airgapped_local_only" ? (
+                  <>
+                    <span className="hide-xs">
+                      Offline Mode: <strong>100% On-Device (0 Network)</strong>
+                    </span>
+                    <span className="show-xs">
+                      Offline: <strong>Local Only</strong>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="hide-xs">
+                      Cloud AI: <strong>Analyzed Safely{liveFirebase ? " (Live Firebase)" : ""}</strong>
+                    </span>
+                    <span className="show-xs">
+                      Cloud AI: <strong>Analyzed Safely</strong>
+                    </span>
+                  </>
+                )}
+                <span className="pipeline-caret" aria-hidden="true">
+                  {hybridInspectorOpen ? "▴" : "▾"}
                 </span>
               </span>
-            </div>
+            </button>
           </div>
+
+          {/* Collapsible Firebase AI Logic Hybrid Routing & Runtime Telemetry Drawer */}
+          {hybridInspectorOpen && (
+            <section className="hybrid-inspector-drawer" aria-label="Firebase AI Logic Hybrid Routing Controls">
+              <div className="hybrid-inspector-top">
+                <div className="hybrid-mode-seg" role="radiogroup" aria-label="Firebase AI Logic routing policy">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={routingPolicy === "hybrid_cloud"}
+                    className={"seg-pill" + (routingPolicy === "hybrid_cloud" ? " active" : "")}
+                    onClick={() => handleSelectRoutingPolicy("hybrid_cloud")}
+                  >
+                    Hybrid (Nano Scrub → Gemini 2.5 Flash)
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={routingPolicy === "prefer_on_device"}
+                    className={"seg-pill" + (routingPolicy === "prefer_on_device" ? " active" : "")}
+                    onClick={() => handleSelectRoutingPolicy("prefer_on_device")}
+                  >
+                    PREFER_ON_DEVICE Airlock
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={routingPolicy === "airgapped_local_only"}
+                    className={"seg-pill" + (routingPolicy === "airgapped_local_only" ? " active" : "")}
+                    onClick={() => handleSelectRoutingPolicy("airgapped_local_only")}
+                  >
+                    Offline Air-Gapped (100% Local)
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  className="footer-link-btn"
+                  onClick={() => setSidebarNav("settings")}
+                >
+                  SDK Snippet &amp; Config ›
+                </button>
+              </div>
+
+              <div className="hybrid-telemetry-chips">
+                <span className="telemetry-chip">
+                  <strong>Stage 1 (firebase/ai):</strong>{" "}
+                  {stage1Mode === InferenceMode.ONLY_ON_DEVICE ? "ONLY_ON_DEVICE" : "PREFER_ON_DEVICE"} ·{" "}
+                  {onDeviceProbe?.chromePromptApiDetected
+                    ? `Gemini Nano (${onDeviceProbe.availability})`
+                    : "18-Rule HIPAA Enclave + Nano Bridge"}
+                </span>
+                <span className="telemetry-chip">
+                  <strong>Stage 2 Gatekeeper:</strong> 0 Raw PII Bytes · SHA-256 #{shortSha || "VERIFIED"}
+                </span>
+                <span className="telemetry-chip">
+                  <strong>Stage 3:</strong>{" "}
+                  {routingPolicy === "airgapped_local_only"
+                    ? "Disabled (Air-Gapped Local Summary)"
+                    : `ONLY_IN_CLOUD (${cloudModelName} + App Check)`}
+                </span>
+              </div>
+            </section>
+          )}
 
           {/* Pre-Send Leak Blocker Alert Banner (when simulated or triggered) */}
           {simulatedLeakAlert && (
@@ -1647,9 +1923,53 @@ export const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* SUB-TAB A: Original Document with Inline Color-Coded Entity Pills + Tooltip */}
+                {/* SUB-TAB A: Original Document with Inline Color-Coded Entity Pills + Guided Manual Redaction */}
                 {leftTab === "document" && (
                   <div className="doc-sheet-wrap">
+                    {selectedPhraseCandidate && (
+                      <div className="selection-redact-bar" role="region" aria-label="Guided manual redaction">
+                        <span className="selection-redact-text">
+                          Selected: <strong>“{selectedPhraseCandidate}”</strong>
+                        </span>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                          <button
+                            type="button"
+                            className="btn-primary-pill"
+                            style={{ height: "28px", padding: "0 12px", fontSize: "11.5px" }}
+                            onClick={() => handleMaskSelectedPhrase(selectedPhraseCandidate)}
+                          >
+                            + Mask Phrase Locally
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-outline-pill"
+                            style={{ height: "28px", padding: "0 9px", fontSize: "11.5px" }}
+                            onClick={() => setSelectedPhraseCandidate("")}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {manualMaskedTerms.length > 0 && (
+                      <div className="manual-terms-strip" aria-label="User-added local redactions">
+                        <span className="manual-terms-label">Guided Local Masks:</span>
+                        {manualMaskedTerms.map((term) => (
+                          <span key={term} className="manual-term-chip">
+                            <span>{term}</span>
+                            <button
+                              type="button"
+                              aria-label={`Remove custom mask ${term}`}
+                              onClick={() => handleRemoveManualTerm(term)}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
                     {peekEnabled && activePeekEntry && (
                       <div className="mobile-peek-bar" role="status">
                         <span className="mobile-peek-text">
@@ -1664,9 +1984,50 @@ export const App: React.FC = () => {
                   </div>
                 )}
 
-                {/* SUB-TAB B: Redacted Version Sent to Cloud + Local Entity Vault */}
+                {/* SUB-TAB B: Redacted Version Sent to Cloud + Redaction Strategy + Local Entity Vault */}
                 {leftTab === "redacted" && (
                   <div className="doc-sheet-wrap">
+                    <div className="redaction-strategy-bar">
+                      <div className="strategy-seg" role="radiogroup" aria-label="Redacted output mode">
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={redactionStrategy === "smart_tokens"}
+                          className={"strategy-btn" + (redactionStrategy === "smart_tokens" ? " active" : "")}
+                          onClick={() => setRedactionStrategy("smart_tokens")}
+                        >
+                          Smart Tokens
+                        </button>
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={redactionStrategy === "synthetic_alias"}
+                          className={"strategy-btn" + (redactionStrategy === "synthetic_alias" ? " active" : "")}
+                          onClick={() => setRedactionStrategy("synthetic_alias")}
+                        >
+                          Synthetic Alias
+                        </button>
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={redactionStrategy === "legal_blackout"}
+                          className={"strategy-btn" + (redactionStrategy === "legal_blackout" ? " active" : "")}
+                          onClick={() => setRedactionStrategy("legal_blackout")}
+                        >
+                          Blackout
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="btn-outline-pill"
+                        style={{ height: "28px", fontSize: "11.5px", padding: "0 10px" }}
+                        onClick={handleCopySafePayload}
+                      >
+                        {copiedId === "redacted-payload" ? "✓ Copied Safe Text" : "Copy Safe Text"}
+                      </button>
+                    </div>
+
                     {renderStructuredSheet("redacted")}
 
                     <div className="vault-subcard">
@@ -1683,7 +2044,7 @@ export const App: React.FC = () => {
                               Local Entity Vault ({vaultEntries.length})
                             </div>
                             <div style={{ fontSize: "11.5px", color: "var(--ink-500)" }}>
-                              Original values stored in browser RAM only
+                              Original values stored in browser RAM only · Hover to trace across panels
                             </div>
                           </div>
                         </div>
@@ -1695,7 +2056,7 @@ export const App: React.FC = () => {
                           onClick={handleExportRedacted}
                         >
                           <span className="hide-compact">↓ Export Redacted PDF</span>
-                          <span className="show-compact">↓ Export</span>
+                          <span className="show-compact">↓ Export PDF</span>
                         </button>
                       </div>
 
@@ -1704,23 +2065,49 @@ export const App: React.FC = () => {
                           <thead>
                             <tr>
                               <th>Original Value</th>
-                              <th>Cloud Token</th>
+                              <th>
+                                {redactionStrategy === "synthetic_alias"
+                                  ? "Synthetic Output"
+                                  : redactionStrategy === "legal_blackout"
+                                  ? "Redacted Output"
+                                  : "Cloud Token"}
+                              </th>
                               <th>Type</th>
                               <th>Visibility</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {vaultEntries.map((entry) => {
+                            {vaultEntries.map((entry, vIdx) => {
                               const isVis = !hiddenVaultTokens.has(entry.token);
                               const color = getEntryPillColor(entry);
+                              const isCrossLinked = hoveredEntityToken === entry.token;
+                              const outVal = getStrategyDisplayForEntry(entry, vIdx, redactionStrategy);
                               return (
-                                <tr key={entry.token}>
+                                <tr
+                                  key={entry.token}
+                                  className={isCrossLinked ? "vault-row-linked" : ""}
+                                  onMouseEnter={() => {
+                                    setHoveredEntityToken(entry.token);
+                                    setActivePeekToken(entry.token);
+                                  }}
+                                  onMouseLeave={() =>
+                                    setHoveredEntityToken((cur) => (cur === entry.token ? null : cur))
+                                  }
+                                >
                                   <td style={{ fontWeight: 500, color: "var(--ink-900)" }}>
                                     {maskDisplayValue(entry, isVis)}
                                   </td>
                                   <td>
-                                    <span className={`entity-pill token-mono ${color}`}>
-                                      {entry.token}
+                                    <span
+                                      className={
+                                        redactionStrategy === "legal_blackout"
+                                          ? `entity-pill blackout-pill${isCrossLinked ? " is-linked" : ""}`
+                                          : `entity-pill ${
+                                              redactionStrategy === "smart_tokens" ? "token-mono " : ""
+                                            }${color}${isCrossLinked ? " is-linked" : ""}`
+                                      }
+                                    >
+                                      {outVal}
                                     </span>
                                   </td>
                                   <td style={{ color: "var(--ink-500)" }}>
@@ -1919,20 +2306,18 @@ export const App: React.FC = () => {
                     </button>
                   </div>
 
-                  {rightTab === "qa" && (
-                    <div className="tab-controls-right">
-                      <button
-                        type="button"
-                        className="btn-outline-pill"
-                        style={{ height: "26px", fontSize: "11px", padding: "0 9px", whiteSpace: "nowrap" }}
-                        onClick={() => setRehydrateRight((v) => !v)}
-                        title="Toggle between locally restored names and raw tokens returned by Cloud AI"
-                      >
-                        <span className="hide-compact">{rehydrateRight ? "Restored Names" : "Cloud Tokens"}</span>
-                        <span className="show-compact">{rehydrateRight ? "Restored" : "Tokens"}</span>
-                      </button>
-                    </div>
-                  )}
+                  <div className="tab-controls-right">
+                    <button
+                      type="button"
+                      className="btn-outline-pill"
+                      style={{ height: "26px", fontSize: "11px", padding: "0 9px", whiteSpace: "nowrap" }}
+                      onClick={() => setRehydrateRight((v) => !v)}
+                      title="Toggle between locally restored names and raw tokens returned by Cloud AI"
+                    >
+                      <span className="hide-compact">{rehydrateRight ? "Restored Names" : "Cloud Tokens"}</span>
+                      <span className="show-compact">{rehydrateRight ? "Restored" : "Tokens"}</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="right-panel-body">
@@ -1940,7 +2325,14 @@ export const App: React.FC = () => {
                   {rightTab === "insights" && (
                     <div className="insights-stack">
                       <div className="section-heading-row">
-                        <h2 className="section-h3">Analysis Summary</h2>
+                        <h2 className="section-h3">
+                          {routingPolicy === "airgapped_local_only"
+                            ? "On-Device Local Summary (Air-Gapped)"
+                            : "Analysis Summary"}
+                        </h2>
+                        {routingPolicy === "airgapped_local_only" && (
+                          <span className="offline-mode-tag">0 Network Calls</span>
+                        )}
                       </div>
 
                       <div className="summary-prose">
@@ -2044,7 +2436,18 @@ export const App: React.FC = () => {
                                 <path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2.2c-3.8 0-7.5 1.9-7.5 4.6V21h15v-2.2c0-2.7-3.7-4.6-7.5-4.6z" />
                               </svg>
                             </span>
-                            <div className="qa-user-bubble">{turn.question}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div className="qa-user-bubble">{turn.question}</div>
+                              <div className="qa-sanitized-proof" title="Exact anonymized prompt transmitted to Cloud AI">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+                                  <rect x="4" y="11" width="16" height="10" rx="2" />
+                                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                                </svg>
+                                <span>
+                                  Sent to Cloud as: <code>{turn.sanitizedQuestion}</code>
+                                </span>
+                              </div>
+                            </div>
                             <span className="qa-timestamp">{turn.timestamp}</span>
                           </div>
 
@@ -2543,6 +2946,39 @@ export const App: React.FC = () => {
               </div>
             </div>
 
+            <div
+              className={"dropzone-box" + (isDragOverModal ? " dragover" : "")}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragOverModal(true);
+              }}
+              onDragLeave={() => setIsDragOverModal(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragOverModal(false);
+                const dropped = e.dataTransfer.files?.[0];
+                if (dropped) void processUploadedClientFile(dropped);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.docx,.txt,.md,.csv,.json,.log"
+                style={{ display: "none" }}
+                onChange={handleFileUpload}
+              />
+              <div style={{ fontWeight: 700, fontSize: "13px", color: "var(--ink-900)" }}>
+                Drop a .PDF, .DOCX, or .TXT file here — or click to browse
+              </div>
+              <div style={{ fontSize: "11.5px", color: "var(--ink-500)", marginTop: "2px" }}>
+                Parsed 100% in local browser RAM (DecompressionStream / PDF text parser · 0 bytes uploaded)
+              </div>
+              {uploadStatusNote && (
+                <div className="upload-status-note">{uploadStatusNote}</div>
+              )}
+            </div>
+
             <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
               <input
                 type="text"
@@ -2552,21 +2988,6 @@ export const App: React.FC = () => {
                 value={pasteDraftTitle}
                 onChange={(e) => setPasteDraftTitle(e.target.value)}
               />
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".txt,.md,.csv,.json,.log"
-                style={{ display: "none" }}
-                onChange={handleFileUpload}
-              />
-              <button
-                type="button"
-                className="btn-outline-pill"
-                style={{ whiteSpace: "nowrap", height: "36px" }}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                Choose Text File…
-              </button>
             </div>
 
             <textarea

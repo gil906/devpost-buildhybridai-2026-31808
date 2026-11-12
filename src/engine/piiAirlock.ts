@@ -399,7 +399,7 @@ const ORDERED_PATTERN_RULES: PatternRule[] = [
   // 1. Patient / Client / Physician Full Names with contextual prefix
   {
     category: "PATIENT_CLIENT_NAME",
-    regex: /\b(?:Patient|Client|Claimant|Guarantor|Attending|Psychiatrist|Electrophysiologist|Dr\.|Prof\.)[:\s]+(?:Dr\.\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-zA-Z.-]*){1,3})\b/g,
+    regex: /\b(?:(?:Patient|Client|Claimant|Guarantor|Provider)(?:[ \t]+Name)?|Attending|Psychiatrist|Electrophysiologist|Dr\.|Prof\.)[: \t]+(?:Dr\.[ \t]+)?([A-Z][a-z]+(?:[ \t]+[A-Z][a-zA-Z.-]*){1,3})\b/g,
     captureGroup: 1
   }
 ];

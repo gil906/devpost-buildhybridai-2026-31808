@@ -1567,14 +1567,17 @@ body {
   margin-top: 2px;
 }
 
-/* Q&A Assistant Thread (Matches NDA Mockup) */
+/* Q&A Assistant Thread (Matches NDA Mockup — unclipped flexible scroll) */
 .qa-thread {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-height: 455px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 520px;
   overflow-y: auto;
   padding-right: 4px;
+  padding-bottom: 8px;
 }
 
 @media (max-width: 1079px) {
@@ -2074,4 +2077,278 @@ body {
   border-radius: 4px;
   background: #e2e8f0;
 }
+
+/* ==================== PRODUCTION UX ENHANCEMENTS ==================== */
+
+/* Interactive Hybrid Pipeline Pill & Collapsible Routing Inspector */
+.hybrid-pipeline-pill.interactive {
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+}
+
+.hybrid-pipeline-pill.interactive:hover,
+.hybrid-pipeline-pill.interactive.open {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: #93c5fd;
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.12);
+}
+
+.pipeline-caret {
+  font-size: 11px;
+  color: var(--ink-500);
+  margin-left: 2px;
+}
+
+.hybrid-inspector-drawer {
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.96);
+  border-radius: 15px;
+  padding: 11px 16px;
+  box-shadow: var(--shadow-pill);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.hybrid-inspector-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hybrid-mode-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px;
+  border-radius: 999px;
+  background: #edf3fc;
+  border: 1px solid #dbe6f6;
+  flex-wrap: wrap;
+}
+
+.seg-pill {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--ink-700);
+  font-family: var(--font-sans);
+  font-size: 11.8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+  white-space: nowrap;
+}
+
+.seg-pill.active {
+  background: #ffffff;
+  color: var(--brand-blue-dark);
+  box-shadow: 0 2px 6px rgba(15, 28, 56, 0.09);
+}
+
+.hybrid-telemetry-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.telemetry-chip {
+  font-size: 11.5px;
+  color: var(--ink-700);
+  background: #f5f8fe;
+  border: 1px solid #e1eaf7;
+  border-radius: 8px;
+  padding: 4px 10px;
+}
+
+/* Cross-Panel Bidirectional Entity Highlighting */
+.entity-pill.is-linked,
+.restored-pill.is-linked {
+  box-shadow: 0 0 0 2.5px #2563eb, 0 4px 12px rgba(37, 99, 235, 0.24);
+  transform: translateY(-1px);
+}
+
+.restored-pill {
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.vault-row-linked td {
+  background: #eef5ff !important;
+}
+
+/* Legal Blackout Pill */
+.entity-pill.blackout-pill {
+  background: #0f172a;
+  color: #0f172a;
+  border-color: #0f172a;
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: -0.04em;
+  user-select: none;
+}
+
+/* Guided Manual Text-Selection Redaction Bar */
+.selection-redact-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 11px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  font-size: 12px;
+  color: var(--ink-900);
+}
+
+.selection-redact-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manual-terms-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.manual-terms-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-500);
+}
+
+.manual-term-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--pill-amber-bg);
+  color: var(--pill-amber-fg);
+  border: 1px solid var(--pill-amber-border);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.manual-term-chip button {
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 1px;
+}
+
+/* Redaction Output Strategy Segmented Bar */
+.redaction-strategy-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.strategy-seg {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(236, 243, 253, 0.9);
+  border: 1px solid #d9e5f6;
+  gap: 3px;
+}
+
+.strategy-btn {
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--ink-700);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.13s ease;
+  white-space: nowrap;
+}
+
+.strategy-btn.active {
+  background: #ffffff;
+  color: var(--brand-blue-dark);
+  box-shadow: 0 2px 6px rgba(15, 28, 56, 0.08);
+}
+
+.offline-mode-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: #15803d;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+/* Zero-PII Outbound Prompt Proof under Q&A User Question */
+.qa-sanitized-proof {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: rgba(240, 253, 244, 0.9);
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  font-size: 11.2px;
+  line-height: 1.35;
+  max-width: 100%;
+}
+
+.qa-sanitized-proof code {
+  font-family: var(--font-mono);
+  font-size: 10.8px;
+  font-weight: 600;
+  color: #14532d;
+  overflow-wrap: anywhere;
+}
+
+/* Drag-and-Drop Zero-Upload RAM Dropzone */
+.dropzone-box {
+  border: 1.5px dashed #93c5fd;
+  border-radius: 13px;
+  background: #f5f9ff;
+  padding: 15px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.dropzone-box:hover,
+.dropzone-box.dragover {
+  background: #eaf2ff;
+  border-color: var(--brand-blue);
+}
+
+.upload-status-note {
+  margin-top: 6px;
+  font-size: 11.8px;
+  font-weight: 600;
+  color: #15803d;
+}
+
 

@@ -19,6 +19,12 @@ import {
   generateSdkCodeSnippet,
   resetPiiZeroFirebaseInstances
 } from "../src/engine/firebaseHybridSdk";
+import {
+  buildVerifiedRedactedPdfBytes,
+  extractPdfTextFromBytes,
+  scrubQuestionWithVaultPreview,
+  transformSanitizedTextByStrategy
+} from "../src/engine/documentIoAndModes";
 // @ts-expect-error ESM server module
 import { createAirlockServer } from "../server/server.mjs";
 
@@ -250,5 +256,59 @@ describe("PII-Zero Hybrid AI Airlock Engine & 18-Category HIPAA/Legal Scrubber",
     expect(sha256Hex("abc")).toBe(
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
+  });
+
+  it("supports Synthetic Alias & Blackout redaction strategies, question preview scrubbing, and valid PDF 1.4 export/extraction", async () => {
+    const raw =
+      "Patient Name: John Doe\nSSN: 123-45-6789\nAgreement with Acme Corporation.";
+    const scrub = scrubTextWithAirlock(raw, {
+      extraRecognizedEntities: [{ value: "Acme Corporation", category: "CUSTOM_POLICY" }],
+      tokenAliases: { "John Doe": "[PATIENT_1]", "Acme Corporation": "[COMPANY_A]" }
+    });
+
+    const synth = transformSanitizedTextByStrategy(
+      scrub.sanitizedText,
+      scrub.vaultEntries,
+      "synthetic_alias"
+    );
+    expect(synth).not.toContain("John Doe");
+    expect(synth).not.toContain("123-45-6789");
+    expect(synth).toContain("Elena Vance");
+    expect(synth).toContain("Meridian Holdings Inc.");
+
+    const blackout = transformSanitizedTextByStrategy(
+      scrub.sanitizedText,
+      scrub.vaultEntries,
+      "legal_blackout"
+    );
+    expect(blackout).toContain("████████");
+    expect(blackout).not.toContain("John Doe");
+
+    const qPreview = scrubQuestionWithVaultPreview(
+      "Are there any risky clauses for Acme Corp or John Doe?",
+      scrub.vaultEntries
+    );
+    expect(qPreview).toBe(
+      "Are there any risky clauses for [COMPANY_A] or [PATIENT_1]?"
+    );
+
+    const pdfBytes = buildVerifiedRedactedPdfBytes({
+      fileName: "Medical Record.pdf",
+      instTitle: "Riverside Medical Center",
+      reportTitle: "Patient Medical Report",
+      sha256: scrub.sanitizedSha256,
+      maskedCount: scrub.telemetry.totalDetected,
+      strategy: "smart_tokens",
+      bodyText: scrub.sanitizedText
+    });
+    const pdfAscii = new TextDecoder("latin1").decode(pdfBytes);
+    expect(pdfAscii.startsWith("%PDF-1.4\n")).toBe(true);
+    expect(pdfAscii.trimEnd().endsWith("%%EOF")).toBe(true);
+    expect(pdfAscii).not.toContain("John Doe");
+    expect(pdfAscii).not.toContain("123-45-6789");
+
+    const roundTrip = await extractPdfTextFromBytes(pdfBytes);
+    expect(roundTrip).toContain("PII-ZERO VERIFIED REDACTED EXPORT");
+    expect(roundTrip).toContain("[PATIENT_1]");
   });
 });
