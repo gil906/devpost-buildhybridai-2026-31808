@@ -12,6 +12,7 @@ import {
 import {
   InferenceMode,
   InferenceSource,
+  DEFAULT_DEMO_FIREBASE_CONFIG,
   buildHybridModelParams,
   initializePiiZeroFirebase,
   runHybridAirlockPipeline,
@@ -369,5 +370,22 @@ describe("PII-Zero Hybrid AI Airlock Engine & 18-Category HIPAA/Legal Scrubber",
     });
     expect(rewrite.cloudOutputWithTokens).not.toContain("Elena Rostova");
     expect(rewrite.rehydratedOutput).toContain("Elena Rostova");
+  });
+
+  it("strips Firebase App Check debug tokens and raw credential editors from client config and GUI", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+
+    expect("appCheckDebugToken" in DEFAULT_DEMO_FIREBASE_CONFIG).toBe(false);
+    expect(DEFAULT_DEMO_FIREBASE_CONFIG.recaptchaEnterpriseSiteKey).toBe("");
+
+    const snippet = generateSdkCodeSnippet(InferenceMode.ONLY_ON_DEVICE, "gemini-2.5-flash");
+    expect(snippet).toContain("import.meta.env.VITE_FIREBASE_API_KEY");
+    expect(snippet).not.toContain("appCheckDebugToken");
+
+    const appSource = fs.readFileSync(path.resolve(__dirname, "../src/App.tsx"), "utf8");
+    expect(appSource).not.toContain("configJsonText");
+    expect(appSource).not.toContain("Firebase Web Config JSON");
+    expect(appSource).not.toContain("appCheckDebugToken");
   });
 });

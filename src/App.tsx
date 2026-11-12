@@ -569,10 +569,7 @@ export const App: React.FC = () => {
 
   const [stage1Mode, setStage1Mode] = useState<InferenceMode>(InferenceMode.ONLY_ON_DEVICE);
   const [cloudModelName, setCloudModelName] = useState<string>("gemini-2.5-flash");
-  const [firebaseConfig, setFirebaseConfig] = useState<FirebaseWebConfig>(DEFAULT_DEMO_FIREBASE_CONFIG);
-  const [configJsonText, setConfigJsonText] = useState<string>(
-    JSON.stringify(DEFAULT_DEMO_FIREBASE_CONFIG, null, 2)
-  );
+  const [firebaseConfig] = useState<FirebaseWebConfig>(DEFAULT_DEMO_FIREBASE_CONFIG);
   const [sdkLang, setSdkLang] = useState<"ts" | "kotlin">("ts");
   const [foldPosture, setFoldPosture] = useState<"unfolded" | "cover">("unfolded");
 
@@ -1325,24 +1322,15 @@ export const App: React.FC = () => {
   };
 
   const handleSaveFirebaseSettings = () => {
-    try {
-      const parsed = JSON.parse(configJsonText) as FirebaseWebConfig;
-      setFirebaseConfig(parsed);
-      void executeAirlock(
-        rawText,
-        customTermsInput,
-        stage1Mode,
-        parsed,
-        cloudModelName,
-        selectedDocId
-      );
-      setSidebarNav("document");
-    } catch {
-      setSimulatedLeakAlert({
-        title: "Invalid Firebase Configuration JSON",
-        detail: "Please ensure your Firebase Web SDK JSON object is valid before saving."
-      });
-    }
+    void executeAirlock(
+      rawText,
+      customTermsInput,
+      stage1Mode,
+      firebaseConfig,
+      cloudModelName,
+      selectedDocId
+    );
+    setSidebarNav("document");
   };
 
   const toggleVaultTokenVisibility = (token: string) => {
@@ -3763,11 +3751,30 @@ export const App: React.FC = () => {
               <section className="home-activity-card">
                 <div className="section-heading-row" style={{ marginBottom: "14px" }}>
                   <div>
-                    <h2 className="section-h3">Firebase AI Logic Hybrid SDK Configuration</h2>
+                    <h2 className="section-h3">Hybrid Inference Policy &amp; Enclave Isolation</h2>
                     <p style={{ fontSize: "12.5px", color: "var(--ink-500)", marginTop: "2px" }}>
-                      Configure Stage 1 on-device inference mode, custom organization redaction terms, and optional live Firebase Web credentials.
+                      Configure Stage 1 on-device inference mode and custom local redaction terms. Zero API keys, tokens, or secrets are rendered or editable in the browser GUI.
                     </p>
                   </div>
+                  <span className="offline-mode-tag">0 Secrets in GUI</span>
+                </div>
+
+                <div className="kpi-cards-grid" style={{ marginBottom: "14px" }}>
+                  <GlareHover className="kpi-insight-card">
+                    <span className="kpi-card-label mono">GUI Credential Surface</span>
+                    <span className="kpi-card-value" style={{ color: "#059669" }}>0 Keys Exposed</span>
+                    <span className="kpi-card-sub">No API keys or tokens in DOM</span>
+                  </GlareHover>
+                  <GlareHover className="kpi-insight-card">
+                    <span className="kpi-card-label mono">App Check Debug Token</span>
+                    <span className="kpi-card-value">Stripped</span>
+                    <span className="kpi-card-sub">Hard-disabled in web client</span>
+                  </GlareHover>
+                  <GlareHover className="kpi-insight-card">
+                    <span className="kpi-card-label mono">Runtime Binding</span>
+                    <span className="kpi-card-value">{liveFirebase ? "Env-Bound" : "Local Sandbox"}</span>
+                    <span className="kpi-card-sub">Strict origin &amp; App Check</span>
+                  </GlareHover>
                 </div>
 
                 <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center", marginBottom: "14px" }}>
@@ -3788,7 +3795,7 @@ export const App: React.FC = () => {
                   </button>
                 </div>
 
-                <div style={{ marginBottom: "12px" }}>
+                <div style={{ marginBottom: "14px" }}>
                   <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, marginBottom: "5px" }}>
                     Custom Company / Project Codewords to Mask Locally (comma-separated):
                   </label>
@@ -3800,22 +3807,10 @@ export const App: React.FC = () => {
                   />
                 </div>
 
-                <div style={{ marginBottom: "12px" }}>
-                  <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, marginBottom: "5px" }}>
-                    Firebase Web Config JSON (GoogleAIBackend + App Check):
-                  </label>
-                  <textarea
-                    className="doc-textarea mono"
-                    style={{ minHeight: "150px", fontSize: "12px" }}
-                    value={configJsonText}
-                    onChange={(e) => setConfigJsonText(e.target.value)}
-                  />
-                </div>
-
                 <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                  <button type="button" className="btn-primary-pill" onClick={handleSaveFirebaseSettings}>
-                    Save &amp; Re-Analyze Document
-                  </button>
+                  <InteractiveHoverButton type="button" onClick={handleSaveFirebaseSettings}>
+                    Apply Policy &amp; Re-Analyze
+                  </InteractiveHoverButton>
                   <input
                     type="text"
                     className="text-input mono"

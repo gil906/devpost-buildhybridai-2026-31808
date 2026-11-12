@@ -40,18 +40,18 @@ export interface FirebaseWebConfig {
   messagingSenderId?: string;
   appId: string;
   recaptchaEnterpriseSiteKey?: string;
-  appCheckDebugToken?: string;
 }
 
+const runtimeEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
+
 export const DEFAULT_DEMO_FIREBASE_CONFIG: FirebaseWebConfig = {
-  apiKey: "DEMO_PIIZERO_LOCAL_AIRLOCK_KEY",
-  authDomain: "piizero-hybrid-airlock.firebaseapp.com",
-  projectId: "piizero-hybrid-airlock",
-  storageBucket: "piizero-hybrid-airlock.firebasestorage.app",
-  messagingSenderId: "104928374651",
-  appId: "1:104928374651:web:8f91a2b3c4d5e6f7012345",
-  recaptchaEnterpriseSiteKey: "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI",
-  appCheckDebugToken: "piizero-appcheck-verified-2026"
+  apiKey: runtimeEnv.VITE_FIREBASE_API_KEY || "DEMO_OFFLINE_SANDBOX",
+  authDomain: runtimeEnv.VITE_FIREBASE_AUTH_DOMAIN || "localhost",
+  projectId: runtimeEnv.VITE_FIREBASE_PROJECT_ID || "piizero-local-sandbox",
+  storageBucket: runtimeEnv.VITE_FIREBASE_STORAGE_BUCKET || "",
+  messagingSenderId: runtimeEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || "000000000000",
+  appId: runtimeEnv.VITE_FIREBASE_APP_ID || "1:000000000000:web:local000000",
+  recaptchaEnterpriseSiteKey: runtimeEnv.VITE_FIREBASE_RECAPTCHA_ENTERPRISE_KEY || ""
 };
 
 export interface OnDeviceProbeStatus {
@@ -198,16 +198,12 @@ export function initializePiiZeroFirebase(
   try {
     if (typeof window !== "undefined") {
       const liveMode = isLiveFirebaseConfigured(config);
-      if (liveMode && config.appCheckDebugToken) {
-        (self as unknown as Record<string, unknown>).FIREBASE_APPCHECK_DEBUG_TOKEN =
-          config.appCheckDebugToken;
-      }
       const provider =
         liveMode && config.recaptchaEnterpriseSiteKey
           ? new ReCaptchaEnterpriseProvider(config.recaptchaEnterpriseSiteKey)
           : new CustomProvider({
               getToken: async () => ({
-                token: config.appCheckDebugToken ?? "piizero-local-appcheck-token",
+                token: "local-sandbox-attestation",
                 expireTimeMillis: Date.now() + 3600_000
               })
             });
@@ -475,9 +471,14 @@ export function generateSdkCodeSnippet(
     `import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";`,
     `import { getAI, getGenerativeModel, GoogleAIBackend, InferenceMode, InferenceSource } from "firebase/ai";`,
     ``,
-    `const app = initializeApp(firebaseConfig);`,
+    `const app = initializeApp({`,
+    `  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,`,
+    `  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,`,
+    `  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,`,
+    `  appId: import.meta.env.VITE_FIREBASE_APP_ID`,
+    `});`,
     `initializeAppCheck(app, {`,
-    `  provider: new ReCaptchaEnterpriseProvider(firebaseConfig.recaptchaEnterpriseSiteKey),`,
+    `  provider: new ReCaptchaEnterpriseProvider(import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY),`,
     `  isTokenAutoRefreshEnabled: true`,
     `});`,
     `const ai = getAI(app, { backend: new GoogleAIBackend() });`,
