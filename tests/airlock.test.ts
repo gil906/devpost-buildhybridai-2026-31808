@@ -25,6 +25,15 @@ import {
   scrubQuestionWithVaultPreview,
   transformSanitizedTextByStrategy
 } from "../src/engine/documentIoAndModes";
+import {
+  BATCH_PACKETS,
+  COMPLIANCE_PROFILES,
+  FIREWALL_SCENARIOS,
+  buildBatchPacketPdfBytes,
+  evaluatePromptFirewall,
+  generateFirewallSafeRewrite,
+  runBatchCorpusAirlock
+} from "../src/engine/batchAndFirewall";
 // @ts-expect-error ESM server module
 import { createAirlockServer } from "../server/server.mjs";
 
@@ -310,5 +319,55 @@ describe("PII-Zero Hybrid AI Airlock Engine & 18-Category HIPAA/Legal Scrubber",
     const roundTrip = await extractPdfTextFromBytes(pdfBytes);
     expect(roundTrip).toContain("PII-ZERO VERIFIED REDACTED EXPORT");
     expect(roundTrip).toContain("[PATIENT_1]");
+  });
+
+  it("maintains consistent shared tokens across Batch Studio files and enforces Prompt Firewall policies", () => {
+    const clinicalPacket = BATCH_PACKETS[0];
+    const batch = runBatchCorpusAirlock({
+      packetId: clinicalPacket.id,
+      files: clinicalPacket.files,
+      customTerms: clinicalPacket.customTerms,
+      tokenAliases: clinicalPacket.tokenAliases
+    });
+
+    expect(batch.files.length).toBe(4);
+    expect(batch.files.every((f) => f.zeroLeakPassed)).toBe(true);
+    expect(batch.cloudPiiBytes).toBe(0);
+    expect(batch.crossFileEntityCount).toBeGreaterThanOrEqual(3);
+
+    const johnShared = batch.sharedVault.find((e) => e.originalValue === "John Doe");
+    expect(johnShared?.token).toBe("[PATIENT_1]");
+    expect(johnShared?.fileIds.length).toBe(4);
+
+    const packetPdf = buildBatchPacketPdfBytes({
+      packetName: clinicalPacket.name,
+      batchResult: batch,
+      strategy: "smart_tokens"
+    });
+    const packetAscii = new TextDecoder("latin1").decode(packetPdf);
+    expect(packetAscii.startsWith("%PDF-1.4\n")).toBe(true);
+    expect(packetAscii).not.toContain("John Doe");
+    expect(packetAscii).not.toContain("123-45-6789");
+
+    // Prompt Firewall evaluation + local rehydration
+    const scenario = FIREWALL_SCENARIOS[0];
+    const fwFull = evaluatePromptFirewall({
+      rawPrompt: scenario.promptText,
+      enabledGroupIds: COMPLIANCE_PROFILES.hipaa_safe_harbor.enabledGroups,
+      customTerms: scenario.customTerms,
+      extraEntities: scenario.extraEntities
+    });
+    expect(fwFull.rawRiskScore).toBeGreaterThan(50);
+    expect(fwFull.postScrubRiskScore).toBe(0);
+    expect(fwFull.sanitizedPrompt).not.toContain("Elena Rostova");
+    expect(fwFull.sanitizedPrompt).not.toContain("412-88-9034");
+
+    const rewrite = generateFirewallSafeRewrite({
+      sanitizedPrompt: fwFull.sanitizedPrompt,
+      activeVault: fwFull.activeVault,
+      task: "polish_email"
+    });
+    expect(rewrite.cloudOutputWithTokens).not.toContain("Elena Rostova");
+    expect(rewrite.rehydratedOutput).toContain("Elena Rostova");
   });
 });

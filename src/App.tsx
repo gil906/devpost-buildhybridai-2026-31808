@@ -28,8 +28,21 @@ import {
   type HybridRoutingPolicy,
   type RedactionOutputStrategy
 } from "./engine/documentIoAndModes";
+import {
+  BATCH_PACKETS,
+  COMPLIANCE_PROFILES,
+  FIREWALL_CATEGORY_GROUPS,
+  FIREWALL_SCENARIOS,
+  buildBatchPacketPdfBytes,
+  evaluatePromptFirewall,
+  generateFirewallSafeRewrite,
+  runBatchCorpusAirlock,
+  type BatchDocumentInput,
+  type ComplianceProfileId,
+  type FirewallActionTask
+} from "./engine/batchAndFirewall";
 
-type SidebarNav = "home" | "document" | "history" | "settings" | "help";
+type SidebarNav = "home" | "document" | "batch" | "firewall" | "history" | "settings" | "help";
 type LeftDocTab = "document" | "redacted" | "audit";
 type RightPanelTab = "insights" | "qa";
 type PillColor = "blue" | "green" | "purple" | "amber";
@@ -457,6 +470,10 @@ export const App: React.FC = () => {
     const nav: SidebarNav =
       rawNav === "home"
         ? "home"
+        : rawNav === "batch"
+        ? "batch"
+        : rawNav === "firewall" || rawNav === "prompt"
+        ? "firewall"
         : rawNav === "history" || rawNav === "vault"
         ? "history"
         : rawNav === "settings"
@@ -556,6 +573,26 @@ export const App: React.FC = () => {
   const [uploadStatusNote, setUploadStatusNote] = useState<string>("");
   const [isDragOverModal, setIsDragOverModal] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const batchFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Batch Studio State (Multi-File Corpus Queue + Shared Cross-Doc Vault)
+  const [selectedPacketId, setSelectedPacketId] = useState<string>(BATCH_PACKETS[0].id);
+  const [extraBatchFiles, setExtraBatchFiles] = useState<Record<string, BatchDocumentInput[]>>({});
+  const [selectedBatchFileId, setSelectedBatchFileId] = useState<string>(BATCH_PACKETS[0].files[0].id);
+  const [batchPreviewMode, setBatchPreviewMode] = useState<"raw" | "redacted">("redacted");
+  const [batchStrategy, setBatchStrategy] = useState<RedactionOutputStrategy>("smart_tokens");
+  const [batchHighlightToken, setBatchHighlightToken] = useState<string | null>(null);
+
+  // Prompt Firewall & Safe Composer State
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>(FIREWALL_SCENARIOS[0].id);
+  const [firewallProfile, setFirewallProfile] = useState<ComplianceProfileId>(FIREWALL_SCENARIOS[0].profile);
+  const [firewallGroups, setFirewallGroups] = useState<string[]>(
+    COMPLIANCE_PROFILES[FIREWALL_SCENARIOS[0].profile].enabledGroups
+  );
+  const [firewallRawPrompt, setFirewallRawPrompt] = useState<string>(FIREWALL_SCENARIOS[0].promptText);
+  const [firewallEnforcement, setFirewallEnforcement] = useState<"auto_mask" | "strict_block">("auto_mask");
+  const [firewallTask, setFirewallTask] = useState<FirewallActionTask>("polish_email");
+  const [firewallShowRestored, setFirewallShowRestored] = useState<boolean>(true);
 
   const [simulatedLeakAlert, setSimulatedLeakAlert] = useState<{
     title: string;
@@ -1057,6 +1094,192 @@ export const App: React.FC = () => {
       firebaseConfig,
       cloudModelName,
       "custom-doc"
+    );
+  };
+
+  const activeBatchPacket = useMemo(
+    () => BATCH_PACKETS.find((p) => p.id === selectedPacketId) ?? BATCH_PACKETS[0],
+    [selectedPacketId]
+  );
+
+  const combinedBatchInputs = useMemo(
+    () => [
+      ...activeBatchPacket.files,
+      ...(extraBatchFiles[activeBatchPacket.id] ?? [])
+    ],
+    [activeBatchPacket, extraBatchFiles]
+  );
+
+  const batchCorpusResult = useMemo(
+    () =>
+      runBatchCorpusAirlock({
+        packetId: activeBatchPacket.id,
+        files: combinedBatchInputs,
+        customTerms: activeBatchPacket.customTerms,
+        tokenAliases: activeBatchPacket.tokenAliases
+      }),
+    [activeBatchPacket, combinedBatchInputs]
+  );
+
+  const activeBatchFile = useMemo(
+    () =>
+      batchCorpusResult.files.find((f) => f.id === selectedBatchFileId) ??
+      batchCorpusResult.files[0],
+    [batchCorpusResult, selectedBatchFileId]
+  );
+
+  const batchSharedVaultEntries = useMemo<VaultEntry[]>(
+    () =>
+      batchCorpusResult.sharedVault.map((s) => ({
+        token: s.token,
+        originalValue: s.originalValue,
+        category: s.category,
+        label: s.label,
+        regulationRef: PII_CATEGORIES[s.category]?.regulationRef ?? "Zero-Trust Policy",
+        severity: PII_CATEGORIES[s.category]?.severity ?? "HIGH",
+        source: s.category === "CUSTOM_POLICY" ? "CUSTOM_POLICY" : "ON_DEVICE_NER",
+        occurrences: s.totalOccurrences,
+        byteLength: new TextEncoder().encode(s.originalValue).length
+      })),
+    [batchCorpusResult]
+  );
+
+  const handleAddFilesToBatch = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    const added: BatchDocumentInput[] = [];
+    for (let i = 0; i < fileList.length; i++) {
+      const f = fileList[i];
+      try {
+        const parsed = await extractClientFileTextInRam(f);
+        added.push({
+          id: `batch-upload-${Date.now()}-${i}`,
+          fileName: parsed.title,
+          ext: parsed.ext,
+          docRole: "Uploaded Exhibit",
+          rawText: parsed.text
+        });
+      } catch {
+        // Ignore unreadable file cleanly
+      }
+    }
+    if (added.length > 0) {
+      setExtraBatchFiles((prev) => ({
+        ...prev,
+        [activeBatchPacket.id]: [...(prev[activeBatchPacket.id] ?? []), ...added]
+      }));
+      setSelectedBatchFileId(added[0].id);
+    }
+    e.target.value = "";
+  };
+
+  const handleExportBatchPdf = () => {
+    const pdfBytes = buildBatchPacketPdfBytes({
+      packetName: activeBatchPacket.name,
+      batchResult: batchCorpusResult,
+      strategy: batchStrategy
+    });
+    const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${activeBatchPacket.id}-REDACTED-PACKET.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleOpenBatchFileInWorkspace = (fileItem: typeof activeBatchFile) => {
+    if (!fileItem) return;
+    const meta: DocTabMeta = {
+      id: "custom-doc",
+      fileName: fileItem.fileName,
+      ext: fileItem.ext,
+      instTitle: activeBatchPacket.name,
+      instSub: `${fileItem.docRole} · Linked from Batch Studio`,
+      showInstHeader: true,
+      reportTitle: fileItem.docRole,
+      isLegal: activeBatchPacket.domain === "legal",
+      rawDocument: fileItem.rawText,
+      customTerms: activeBatchPacket.customTerms,
+      extraEntities: batchSharedVaultEntries.map((v) => ({
+        value: v.originalValue,
+        category: v.category
+      })),
+      tokenAliases: activeBatchPacket.tokenAliases,
+      defaultQuestion: "What are the highest-priority risks and next steps in this record?",
+      quickChips: ["Summarize key risks", "What are the key findings?", "Any cross-file conflicts?"],
+      kpi1Label: "Batch Packet",
+      kpi1Main: `${batchCorpusResult.files.length} Files`,
+      kpi2Label: "Shared Vault",
+      kpi2Main: `${batchCorpusResult.sharedVault.length} Entities`,
+      kpi2Sub: "Consistent Tokens",
+      kpi3Label: "Cloud Payload",
+      kpi3Main: "0 Raw PII",
+      kpi3Sub: "SHA-256 Verified"
+    };
+    setCustomDocMeta(meta);
+    if (!openPresetIds.includes("custom-doc")) {
+      setOpenPresetIds((prev) => [...prev, "custom-doc"]);
+    }
+    setSelectedDocId("custom-doc");
+    setRawText(fileItem.rawText);
+    setSidebarNav("document");
+    void executeAirlock(
+      fileItem.rawText,
+      activeBatchPacket.customTerms.join(", "),
+      stage1Mode,
+      firebaseConfig,
+      cloudModelName,
+      "custom-doc",
+      false,
+      meta
+    );
+  };
+
+  const activeFirewallScenario = useMemo(
+    () => FIREWALL_SCENARIOS.find((s) => s.id === selectedScenarioId) ?? FIREWALL_SCENARIOS[0],
+    [selectedScenarioId]
+  );
+
+  const firewallEval = useMemo(
+    () =>
+      evaluatePromptFirewall({
+        rawPrompt: firewallRawPrompt,
+        enabledGroupIds: firewallGroups,
+        customTerms: activeFirewallScenario.customTerms,
+        extraEntities: activeFirewallScenario.extraEntities
+      }),
+    [firewallRawPrompt, firewallGroups, activeFirewallScenario]
+  );
+
+  const firewallRewrite = useMemo(
+    () =>
+      generateFirewallSafeRewrite({
+        sanitizedPrompt: firewallEval.sanitizedPrompt,
+        activeVault: firewallEval.activeVault,
+        task: firewallTask
+      }),
+    [firewallEval, firewallTask]
+  );
+
+  const handleSelectFirewallScenario = (scenarioId: string) => {
+    const found = FIREWALL_SCENARIOS.find((s) => s.id === scenarioId);
+    if (!found) return;
+    setSelectedScenarioId(found.id);
+    setFirewallProfile(found.profile);
+    setFirewallGroups(COMPLIANCE_PROFILES[found.profile].enabledGroups);
+    setFirewallRawPrompt(found.promptText);
+  };
+
+  const handleSelectFirewallProfile = (prof: ComplianceProfileId) => {
+    setFirewallProfile(prof);
+    setFirewallGroups(COMPLIANCE_PROFILES[prof].enabledGroups);
+  };
+
+  const handleToggleFirewallGroup = (groupId: string) => {
+    setFirewallProfile("custom_policy");
+    setFirewallGroups((prev) =>
+      prev.includes(groupId) ? prev.filter((g) => g !== groupId) : [...prev, groupId]
     );
   };
 
@@ -1581,6 +1804,33 @@ export const App: React.FC = () => {
 
               <button
                 type="button"
+                className={"sidebar-link " + (sidebarNav === "batch" ? "active" : "")}
+                onClick={() => setSidebarNav("batch")}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="4" width="14" height="14" rx="2" />
+                  <path d="M7 20h12a2 2 0 0 0 2-2V8" />
+                  <path d="M7 9h6M7 13h4" />
+                </svg>
+                <span className="hide-compact">Batch Studio</span>
+                <span className="show-compact">Batch</span>
+              </button>
+
+              <button
+                type="button"
+                className={"sidebar-link " + (sidebarNav === "firewall" ? "active" : "")}
+                onClick={() => setSidebarNav("firewall")}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
+                  <path d="M9 12l2 2 4-4" />
+                </svg>
+                <span className="hide-compact">Prompt Firewall</span>
+                <span className="show-compact">Firewall</span>
+              </button>
+
+              <button
+                type="button"
                 className={"sidebar-link " + (sidebarNav === "history" ? "active" : "")}
                 onClick={() => setSidebarNav("history")}
               >
@@ -1646,59 +1896,115 @@ export const App: React.FC = () => {
 
         {/* Main Content Canvas */}
         <div className="pz-main">
-          {/* Top Document Bar + Status Badge */}
+          {/* Top Contextual Bar + Status Badge */}
           <header className="pz-topbar">
-            <div className="doc-tabs-row" role="tablist" aria-label="Open documents">
-              {openPresetIds.map((docId) => {
-                const meta =
-                  docId === "custom-doc" && customDocMeta
-                    ? customDocMeta
-                    : WORKSPACE_DOCS[docId];
-                if (!meta) return null;
-                const isActive = sidebarNav === "document" && selectedDocId === docId;
-                return (
+            {sidebarNav === "batch" ? (
+              <div className="doc-tabs-row" role="tablist" aria-label="Batch packets">
+                {BATCH_PACKETS.map((pkt) => (
                   <button
-                    key={docId}
+                    key={pkt.id}
                     type="button"
                     role="tab"
-                    aria-selected={isActive}
-                    className={"doc-file-pill " + (isActive ? "active" : "")}
+                    aria-selected={selectedPacketId === pkt.id}
+                    className={"doc-file-pill " + (selectedPacketId === pkt.id ? "active" : "")}
                     onClick={() => {
-                      if (docId === "custom-doc") {
-                        setSelectedDocId("custom-doc");
-                        setSidebarNav("document");
-                      } else {
-                        handleSelectPresetDoc(docId);
-                      }
+                      setSelectedPacketId(pkt.id);
+                      setSelectedBatchFileId(pkt.files[0].id);
+                      setBatchHighlightToken(null);
                     }}
                   >
-                    <span className={`file-type-icon ${meta.ext}`}>
-                      {meta.ext === "docx" ? "W" : "PDF"}
+                    <span className={`file-type-icon ${pkt.domain === "legal" ? "docx" : "pdf"}`}>
+                      {pkt.files.length}
                     </span>
-                    <span>{meta.fileName}</span>
-                    {openPresetIds.length > 1 && (
-                      <span
-                        className="doc-pill-close"
-                        title="Close tab"
-                        onClick={(e) => handleCloseDocTab(e, docId)}
-                      >
-                        ×
-                      </span>
-                    )}
+                    <span>{pkt.name}</span>
                   </button>
-                );
-              })}
+                ))}
+                <input
+                  ref={batchFileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.docx,.txt,.md,.csv,.json"
+                  style={{ display: "none" }}
+                  onChange={(e) => void handleAddFilesToBatch(e)}
+                />
+                <button
+                  type="button"
+                  className="upload-pill-btn"
+                  onClick={() => batchFileInputRef.current?.click()}
+                >
+                  <span style={{ fontSize: "16px", fontWeight: 500 }}>+</span>
+                  <span>Add Files to Packet</span>
+                </button>
+              </div>
+            ) : sidebarNav === "firewall" ? (
+              <div className="doc-tabs-row" role="tablist" aria-label="Prompt firewall scenarios">
+                {FIREWALL_SCENARIOS.map((sc) => (
+                  <button
+                    key={sc.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={selectedScenarioId === sc.id}
+                    className={"doc-file-pill " + (selectedScenarioId === sc.id ? "active" : "")}
+                    onClick={() => handleSelectFirewallScenario(sc.id)}
+                  >
+                    <span className="file-type-icon pdf">AI</span>
+                    <span>{sc.label}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="doc-tabs-row" role="tablist" aria-label="Open documents">
+                {openPresetIds.map((docId) => {
+                  const meta =
+                    docId === "custom-doc" && customDocMeta
+                      ? customDocMeta
+                      : WORKSPACE_DOCS[docId];
+                  if (!meta) return null;
+                  const isActive = sidebarNav === "document" && selectedDocId === docId;
+                  return (
+                    <button
+                      key={docId}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      className={"doc-file-pill " + (isActive ? "active" : "")}
+                      onClick={() => {
+                        if (docId === "custom-doc") {
+                          setSelectedDocId("custom-doc");
+                          setSidebarNav("document");
+                        } else {
+                          handleSelectPresetDoc(docId);
+                        }
+                      }}
+                    >
+                      <span className={`file-type-icon ${meta.ext}`}>
+                        {meta.ext === "docx" ? "W" : "PDF"}
+                      </span>
+                      <span>{meta.fileName}</span>
+                      {openPresetIds.length > 1 && (
+                        <span
+                          className="doc-pill-close"
+                          title="Close tab"
+                          onClick={(e) => handleCloseDocTab(e, docId)}
+                        >
+                          ×
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
 
-              <button
-                type="button"
-                className="upload-pill-btn"
-                onClick={() => setUploadModalOpen(true)}
-              >
-                <span style={{ fontSize: "16px", fontWeight: 500 }}>+</span>
-                <span className="hide-xs">Upload / Paste</span>
-                <span className="show-xs">Upload</span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  className="upload-pill-btn"
+                  onClick={() => setUploadModalOpen(true)}
+                >
+                  <span style={{ fontSize: "16px", fontWeight: 500 }}>+</span>
+                  <span className="hide-xs">Upload / Paste</span>
+                  <span className="show-xs">Upload</span>
+                </button>
+              </div>
+            )}
 
             <div className="scrubber-status-pill" title="Pre-send gatekeeper verified 0 raw PII bytes leave your device">
               <span className="live-green-dot" />
@@ -2541,6 +2847,559 @@ export const App: React.FC = () => {
                         </button>
                       ))}
                     </div>
+                  </div>
+                </div>
+              </section>
+            </main>
+          )}
+
+          {/* ==================== VIEW 1B: BATCH STUDIO (MULTI-FILE CORPUS & SHARED VAULT) ==================== */}
+          {sidebarNav === "batch" && (
+            <main className="workspace-split" aria-label="Multi-Document Batch De-Identification Studio">
+              {/* LEFT PANEL: Packet Queue + File Preview + Cross-File Shared Entity Matrix */}
+              <section className="glass-panel">
+                <div className="card-tabbar">
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+                    <span className="vault-lock-badge" aria-hidden="true">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                        <rect x="3" y="4" width="14" height="14" rx="2" />
+                        <path d="M7 20h12a2 2 0 0 0 2-2V8" />
+                      </svg>
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: "13.5px", fontWeight: 700, color: "var(--ink-900)" }}>
+                        Packet Queue ({batchCorpusResult.files.length} Files)
+                      </div>
+                      <div style={{ fontSize: "11.5px", color: "var(--ink-500)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {activeBatchPacket.subtitle}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="strategy-seg" role="radiogroup" aria-label="Batch redaction output strategy">
+                    <button
+                      type="button"
+                      className={"strategy-btn" + (batchStrategy === "smart_tokens" ? " active" : "")}
+                      onClick={() => setBatchStrategy("smart_tokens")}
+                    >
+                      Tokens
+                    </button>
+                    <button
+                      type="button"
+                      className={"strategy-btn" + (batchStrategy === "synthetic_alias" ? " active" : "")}
+                      onClick={() => setBatchStrategy("synthetic_alias")}
+                    >
+                      Synthetic
+                    </button>
+                    <button
+                      type="button"
+                      className={"strategy-btn" + (batchStrategy === "legal_blackout" ? " active" : "")}
+                      onClick={() => setBatchStrategy("legal_blackout")}
+                    >
+                      Blackout
+                    </button>
+                  </div>
+                </div>
+
+                <div className="doc-sheet-wrap" style={{ overflowY: "auto" }}>
+                  {/* Queued File Selector Cards */}
+                  <div className="batch-files-grid">
+                    {batchCorpusResult.files.map((bf) => {
+                      const isSel = activeBatchFile?.id === bf.id;
+                      const matchesHighlight =
+                        batchHighlightToken &&
+                        bf.fileEntities.some((e) => e.token === batchHighlightToken);
+                      return (
+                        <button
+                          key={bf.id}
+                          type="button"
+                          className={
+                            "batch-file-card" +
+                            (isSel ? " active" : "") +
+                            (matchesHighlight ? " linked" : "")
+                          }
+                          onClick={() => setSelectedBatchFileId(bf.id)}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
+                            <span className={`file-type-icon ${bf.ext}`}>
+                              {bf.ext === "docx" ? "W" : "PDF"}
+                            </span>
+                            <span className="batch-verified-chip">✓ {bf.maskedCount} masked</span>
+                          </div>
+                          <div className="batch-file-name">{bf.fileName}</div>
+                          <div className="batch-file-role">{bf.docRole} · 0 B leaked</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Selected File Preview Paper */}
+                  {activeBatchFile && (
+                    <div className="doc-paper" style={{ maxHeight: "235px", padding: "15px 18px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: "13.5px", color: "var(--ink-900)" }}>
+                            {activeBatchFile.fileName}
+                          </div>
+                          <div className="mono" style={{ fontSize: "11px", color: "var(--ink-400)" }}>
+                            SHA-256 #{activeBatchFile.sha256.slice(0, 12).toUpperCase()}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <div className="strategy-seg">
+                            <button
+                              type="button"
+                              className={"strategy-btn" + (batchPreviewMode === "redacted" ? " active" : "")}
+                              onClick={() => setBatchPreviewMode("redacted")}
+                            >
+                              Redacted
+                            </button>
+                            <button
+                              type="button"
+                              className={"strategy-btn" + (batchPreviewMode === "raw" ? " active" : "")}
+                              onClick={() => setBatchPreviewMode("raw")}
+                            >
+                              Original
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn-outline-pill"
+                            style={{ height: "28px", fontSize: "11.5px", padding: "0 10px" }}
+                            onClick={() => handleOpenBatchFileInWorkspace(activeBatchFile)}
+                          >
+                            Open in Doc ›
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: "12.8px", lineHeight: 1.62, whiteSpace: "pre-wrap", color: "var(--ink-700)" }}>
+                        {batchPreviewMode === "raw"
+                          ? activeBatchFile.rawText
+                          : transformSanitizedTextByStrategy(
+                              activeBatchFile.sanitizedText,
+                              batchSharedVaultEntries,
+                              batchStrategy
+                            )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Cross-Document Shared Entity Vault */}
+                  <div className="vault-subcard">
+                    <div className="vault-subcard-header">
+                      <div className="vault-subcard-title">
+                        <span className="vault-lock-badge" aria-hidden="true">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                          </svg>
+                        </span>
+                        <div>
+                          <div style={{ fontSize: "13px", fontWeight: 700 }}>
+                            Shared Cross-Document Vault ({batchCorpusResult.sharedVault.length} Unique · {batchCorpusResult.crossFileEntityCount} Multi-File)
+                          </div>
+                          <div style={{ fontSize: "11.2px", color: "var(--ink-500)" }}>
+                            Same person/company gets the exact same token across every file · Hover to highlight files above
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ maxHeight: "185px", overflowY: "auto" }}>
+                      <table className="vault-table">
+                        <thead>
+                          <tr>
+                            <th>Original Entity</th>
+                            <th>Shared Token / Alias</th>
+                            <th>Files Linked</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {batchCorpusResult.sharedVault.map((sv, idx) => {
+                            const asEntry = batchSharedVaultEntries[idx];
+                            const color = getEntryPillColor(asEntry);
+                            const outLabel = getStrategyDisplayForEntry(asEntry, idx, batchStrategy);
+                            return (
+                              <tr
+                                key={sv.token}
+                                className={batchHighlightToken === sv.token ? "vault-row-linked" : ""}
+                                onMouseEnter={() => setBatchHighlightToken(sv.token)}
+                                onMouseLeave={() => setBatchHighlightToken(null)}
+                              >
+                                <td style={{ fontWeight: 600 }}>
+                                  {sv.category === "SSN"
+                                    ? "***-**-" + sv.originalValue.slice(-4)
+                                    : sv.originalValue}
+                                </td>
+                                <td>
+                                  <span
+                                    className={
+                                      batchStrategy === "legal_blackout"
+                                        ? "entity-pill blackout-pill"
+                                        : `entity-pill ${batchStrategy === "smart_tokens" ? "token-mono " : ""}${color}`
+                                    }
+                                  >
+                                    {outLabel}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span className="cross-file-badge">
+                                    {sv.fileIds.length}/{batchCorpusResult.files.length} files ({sv.totalOccurrences}×)
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card-footer-strip">
+                  <span>
+                    <strong>{batchCorpusResult.totalMaskedInstances} PII spans</strong> linked across{" "}
+                    <strong>{batchCorpusResult.files.length} files</strong> (0 raw PII bytes sent)
+                  </span>
+                  <button type="button" className="btn-primary-pill" onClick={handleExportBatchPdf}>
+                    ↓ Export Packet PDF
+                  </button>
+                </div>
+              </section>
+
+              {/* RIGHT PANEL: Cross-Document Cloud Gemini 2.5 Synthesis */}
+              <section className="glass-panel">
+                <div className="card-tabbar">
+                  <div className="card-tabs">
+                    <span className="card-tab active">
+                      <span style={{ color: "#2563eb" }}>✦</span>
+                      <span>Cross-Packet AI Reconciliation</span>
+                    </span>
+                  </div>
+                  <div className="tab-controls-right">
+                    <button
+                      type="button"
+                      className="btn-outline-pill"
+                      style={{ height: "26px", fontSize: "11px", padding: "0 9px" }}
+                      onClick={() => setRehydrateRight((v) => !v)}
+                    >
+                      {rehydrateRight ? "Restored Names" : "Cloud Tokens"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="right-panel-body">
+                  <div className="insights-stack">
+                    <h2 className="section-h3">{activeBatchPacket.crossDocSynthesisTitle}</h2>
+
+                    <div className="summary-prose">
+                      {rehydrateRight
+                        ? replaceTokensWithValues(
+                            activeBatchPacket.crossDocSynthesisSummary,
+                            batchSharedVaultEntries,
+                            new Set()
+                          )
+                        : activeBatchPacket.crossDocSynthesisSummary}
+                    </div>
+
+                    <div className="kpi-cards-grid">
+                      <div className="kpi-insight-card">
+                        <span className="kpi-icon-circle blue" aria-hidden="true">✓</span>
+                        <span className="kpi-card-label">Packet Scope</span>
+                        <span className="kpi-card-value">{batchCorpusResult.files.length} Records</span>
+                        <span className="kpi-card-sub">{batchCorpusResult.totalMaskedInstances} Spans Masked</span>
+                      </div>
+                      <div className="kpi-insight-card">
+                        <span className="kpi-icon-circle purple" aria-hidden="true">⇄</span>
+                        <span className="kpi-card-label">Shared Entities</span>
+                        <span className="kpi-card-value">{batchCorpusResult.crossFileEntityCount} Linked</span>
+                        <span className="kpi-card-sub">Consistent Coreference</span>
+                      </div>
+                      <div className="kpi-insight-card">
+                        <span className="kpi-icon-circle green" aria-hidden="true">0</span>
+                        <span className="kpi-card-label">Cloud Exposure</span>
+                        <span className="kpi-card-value">0 Bytes</span>
+                        <span className="kpi-card-sub">#{batchCorpusResult.batchManifestSha256.slice(0, 8).toUpperCase()}</span>
+                      </div>
+                    </div>
+
+                    <div className="restored-banner">
+                      <span className="check-circle-green" aria-hidden="true">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                          <path d="M5 13l4 4L19 7" />
+                        </svg>
+                      </span>
+                      <span>
+                        Cross-file risks detected because shared tokens preserved identity across all {batchCorpusResult.files.length} documents.
+                      </span>
+                    </div>
+
+                    <h3 className="section-h3">Cross-Document Findings &amp; Mismatches</h3>
+                    <div className="next-steps-list">
+                      {activeBatchPacket.crossDocAlerts.map((al, i) => {
+                        const titleTxt = rehydrateRight
+                          ? replaceTokensWithValues(al.title, batchSharedVaultEntries, new Set())
+                          : al.title;
+                        const detailTxt = rehydrateRight
+                          ? replaceTokensWithValues(al.detail, batchSharedVaultEntries, new Set())
+                          : al.detail;
+                        return (
+                          <div key={i} className="batch-finding-card">
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                              <span className={`severity-tag ${al.severity.toLowerCase()}`}>
+                                {al.severity}
+                              </span>
+                              <strong style={{ fontSize: "13px", color: "var(--ink-900)" }}>
+                                {titleTxt}
+                              </strong>
+                            </div>
+                            <div style={{ fontSize: "12.8px", color: "var(--ink-700)", lineHeight: 1.55 }}>
+                              {detailTxt}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </main>
+          )}
+
+          {/* ==================== VIEW 1C: PROMPT FIREWALL & SAFE AI COMPOSER ==================== */}
+          {sidebarNav === "firewall" && (
+            <main className="workspace-split" aria-label="Outbound AI Prompt Firewall and Safe Composer">
+              {/* LEFT PANEL: Compliance Policy Builder + Live As-You-Type Firewall */}
+              <section className="glass-panel">
+                <div className="card-tabbar">
+                  <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+                    <span className="vault-lock-badge" aria-hidden="true">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                        <path d="M12 3l7 3.5v5.2c0 4.6-3 8.6-7 10-4-1.4-7-5.4-7-10V6.5L12 3z" />
+                      </svg>
+                    </span>
+                    <div>
+                      <div style={{ fontSize: "13.5px", fontWeight: 700 }}>
+                        Live Outbound AI Firewall
+                      </div>
+                      <div style={{ fontSize: "11.5px", color: "var(--ink-500)" }}>
+                        Intercepts PII in emails, notes &amp; prompts before reaching Cloud LLMs
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="strategy-seg" role="radiogroup" aria-label="Firewall enforcement mode">
+                    <button
+                      type="button"
+                      className={"strategy-btn" + (firewallEnforcement === "auto_mask" ? " active" : "")}
+                      onClick={() => setFirewallEnforcement("auto_mask")}
+                    >
+                      Auto-Mask
+                    </button>
+                    <button
+                      type="button"
+                      className={"strategy-btn" + (firewallEnforcement === "strict_block" ? " active" : "")}
+                      onClick={() => setFirewallEnforcement("strict_block")}
+                    >
+                      Strict Block
+                    </button>
+                  </div>
+                </div>
+
+                <div className="doc-sheet-wrap" style={{ overflowY: "auto" }}>
+                  {/* Compliance Profile Pills */}
+                  <div>
+                    <div style={{ fontSize: "11.5px", fontWeight: 700, color: "var(--ink-500)", marginBottom: "6px" }}>
+                      Compliance Policy Profile ({COMPLIANCE_PROFILES[firewallProfile].badge}):
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
+                      {(Object.keys(COMPLIANCE_PROFILES) as ComplianceProfileId[]).map((pid) => (
+                        <button
+                          key={pid}
+                          type="button"
+                          className={firewallProfile === pid ? "btn-primary-pill" : "btn-outline-pill"}
+                          style={{ height: "28px", fontSize: "11.5px", padding: "0 11px" }}
+                          onClick={() => handleSelectFirewallProfile(pid)}
+                        >
+                          {COMPLIANCE_PROFILES[pid].label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Granular Rule Category Toggles */}
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      {FIREWALL_CATEGORY_GROUPS.map((grp) => {
+                        const on = firewallGroups.includes(grp.id);
+                        return (
+                          <button
+                            key={grp.id}
+                            type="button"
+                            className={"policy-toggle-chip" + (on ? " on" : "")}
+                            onClick={() => handleToggleFirewallGroup(grp.id)}
+                          >
+                            <span>{on ? "✓" : "○"}</span>
+                            <span>{grp.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Raw Prompt Editor */}
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "5px" }}>
+                      <label style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink-900)" }}>
+                        1. Raw Outbound Prompt / Email Draft (Device RAM Only)
+                      </label>
+                      <span className="risk-pill raw">
+                        Raw Risk: {firewallEval.rawRiskScore}/100
+                      </span>
+                    </div>
+                    <textarea
+                      className="doc-textarea"
+                      style={{ minHeight: "130px", fontSize: "13px" }}
+                      value={firewallRawPrompt}
+                      onChange={(e) => setFirewallRawPrompt(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Sanitized Cloud Payload Preview */}
+                  <div className="vault-subcard" style={{ padding: "12px 14px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "6px", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink-900)" }}>
+                        2. Exact Payload Allowed Through Firewall
+                      </span>
+                      <span className={"risk-pill " + (firewallEval.postScrubRiskScore === 0 ? "safe" : "raw")}>
+                        Post-Firewall Exposure: {firewallEval.postScrubRiskScore}/100
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "12.5px", lineHeight: 1.6, color: "var(--ink-700)", background: "#ffffff", border: "1px solid #e3ecf7", borderRadius: "10px", padding: "10px 12px" }}>
+                      {firewallEval.sanitizedPrompt}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card-footer-strip">
+                  <span>
+                    <strong>{firewallEval.suppressedCount} spans</strong> intercepted locally · Receipt #{firewallEval.sha256Short}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-outline-pill"
+                    style={{ height: "28px", fontSize: "11.5px" }}
+                    onClick={() => {
+                      if (navigator.clipboard) void navigator.clipboard.writeText(firewallEval.sanitizedPrompt);
+                      setCopiedId("fw-masked");
+                      setTimeout(() => setCopiedId(null), 1600);
+                    }}
+                  >
+                    {copiedId === "fw-masked" ? "✓ Copied Masked Prompt" : "Copy Masked Prompt"}
+                  </button>
+                </div>
+              </section>
+
+              {/* RIGHT PANEL: Safe Cloud AI Rewrite & Task Composer */}
+              <section className="glass-panel">
+                <div className="card-tabbar">
+                  <div className="card-tabs">
+                    <span className="card-tab active">
+                      <span style={{ color: "#7c3aed" }}>✦</span>
+                      <span>Safe Cloud AI Composer</span>
+                    </span>
+                  </div>
+                  <div className="tab-controls-right">
+                    <button
+                      type="button"
+                      className="btn-outline-pill"
+                      style={{ height: "26px", fontSize: "11px", padding: "0 9px" }}
+                      onClick={() => setFirewallShowRestored((v) => !v)}
+                    >
+                      {firewallShowRestored ? "Restored Names" : "Cloud Tokens"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="right-panel-body">
+                  <div className="insights-stack">
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink-500)", marginBottom: "7px" }}>
+                        Select Cloud Gemini 2.5 Task (runs on anonymized prompt only):
+                      </div>
+                      <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                        {([
+                          ["polish_email", "Polish Professional Draft"],
+                          ["extract_actions", "Extract Action Checklist"],
+                          ["patient_plain_language", "Plain-Language Summary"],
+                          ["spanish_translation", "Spanish Translation"]
+                        ] as Array<[FirewallActionTask, string]>).map(([tid, tlabel]) => (
+                          <button
+                            key={tid}
+                            type="button"
+                            className={firewallTask === tid ? "btn-primary-pill" : "btn-outline-pill"}
+                            style={{ height: "30px", fontSize: "12px" }}
+                            onClick={() => setFirewallTask(tid)}
+                          >
+                            {tlabel}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {firewallEnforcement === "strict_block" && firewallEval.rawRiskScore > 0 ? (
+                      <div className="leak-banner" style={{ flexDirection: "column", alignItems: "flex-start" }}>
+                        <div className="leak-banner-title">
+                          Strict Block Policy Triggered — Outbound Cloud Call Blocked
+                        </div>
+                        <div className="leak-banner-desc">
+                          Prompt Firewall detected {firewallEval.suppressedCount} regulated identifiers (Raw Risk {firewallEval.rawRiskScore}/100). Under <strong>Strict Block</strong> mode, network transmission is denied until identifiers are removed or mode is switched back to <strong>Auto-Mask</strong>.
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="doc-paper" style={{ maxHeight: "none" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", gap: "8px", flexWrap: "wrap" }}>
+                            <h3 className="section-h3">{firewallRewrite.taskTitle}</h3>
+                            <span className="offline-mode-tag">
+                              {firewallShowRestored ? "Restored in RAM" : "Raw Cloud Return"}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: "13.5px", lineHeight: 1.66, whiteSpace: "pre-wrap", color: "var(--ink-800)" }}>
+                            {firewallShowRestored
+                              ? firewallRewrite.rehydratedOutput
+                              : firewallRewrite.cloudOutputWithTokens}
+                          </div>
+                        </div>
+
+                        <div className="restored-banner">
+                          <span className="check-circle-green" aria-hidden="true">✓</span>
+                          <span>
+                            Gemini 2.5 Flash generated this draft using only <code>[PII_*]</code> placeholders; real names were restored on your device.
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="ask-dock" style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: "12px", color: "var(--ink-500)" }}>
+                      Policy: <strong>{COMPLIANCE_PROFILES[firewallProfile].label}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-primary-pill"
+                      disabled={firewallEnforcement === "strict_block" && firewallEval.rawRiskScore > 0}
+                      onClick={() => {
+                        const out = firewallShowRestored
+                          ? firewallRewrite.rehydratedOutput
+                          : firewallRewrite.cloudOutputWithTokens;
+                        if (navigator.clipboard) void navigator.clipboard.writeText(out);
+                        setCopiedId("fw-out");
+                        setTimeout(() => setCopiedId(null), 1600);
+                      }}
+                    >
+                      {copiedId === "fw-out" ? "✓ Copied Safe Draft" : "Copy Generated Draft"}
+                    </button>
                   </div>
                 </div>
               </section>
